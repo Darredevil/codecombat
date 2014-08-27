@@ -29,6 +29,7 @@ HUDView = require './LevelHUDView'
 ControlBarView = require './ControlBarView'
 LevelPlaybackView = require './LevelPlaybackView'
 GoalsView = require './LevelGoalsView'
+LevelFlagsView = require './LevelFlagsView'
 GoldView = require './LevelGoldView'
 VictoryModal = require './modal/VictoryModal'
 InfiniteLoopModal = require './modal/InfiniteLoopModal'
@@ -40,7 +41,6 @@ module.exports = class PlayLevelView extends RootView
   template: template
   cache: false
   shortcutsEnabled: true
-  startsLoading: true
   isEditorPreview: false
 
   subscriptions:
@@ -53,8 +53,10 @@ module.exports = class PlayLevelView extends RootView
     'level-disable-controls': 'onDisableControls'
     'level-enable-controls': 'onEnableControls'
     'god:new-world-created': 'onNewWorld'
+    'god:streaming-world-updated': 'onNewWorld'
     'god:infinite-loop': 'onInfiniteLoop'
     'level-reload-from-data': 'onLevelReloadFromData'
+    'level-reload-thang-type': 'onLevelReloadThangType'
     'play-next-level': 'onPlayNextLevel'
     'edit-wizard-settings': 'showWizardSettingsModal'
     'surface:world-set-up': 'onSurfaceSetUpNewWorld'
@@ -62,6 +64,8 @@ module.exports = class PlayLevelView extends RootView
     'level:set-team': 'setTeam'
     'level:started': 'onLevelStarted'
     'level:loading-view-unveiled': 'onLoadingViewUnveiled'
+    'playback:real-time-playback-started': 'onRealTimePlaybackStarted'
+    'playback:real-time-playback-ended': 'onRealTimePlaybackEnded'
 
   events:
     'click #level-done-button': 'onDonePressed'
@@ -103,7 +107,7 @@ module.exports = class PlayLevelView extends RootView
     @supermodel.collections = givenSupermodel.collections
     @supermodel.shouldSaveBackups = givenSupermodel.shouldSaveBackups
 
-    serializedLevel = @level.serialize @supermodel
+    serializedLevel = @level.serialize @supermodel, @session
     @god?.setLevel serializedLevel
     if @world
       @world.loadFromLevel serializedLevel, false
@@ -133,12 +137,12 @@ module.exports = class PlayLevelView extends RootView
 
   showGuide: ->
     @seenDocs = true
-    DocsModal = require './modal/docs_modal'
+    LevelGuideModal = require './modal/LevelGuideModal'
     options =
       docs: @levelLoader.level.get('documentation')
       supermodel: @supermodel
       firstOnly: true
-    @openModalView(new DocsModal(options), true)
+    @openModalView(new LevelGuideModal(options), true)
     onGuideOpened = ->
       @guideOpenTime = new Date()
     onGuideClosed = ->
@@ -212,7 +216,7 @@ module.exports = class PlayLevelView extends RootView
       @session.set 'multiplayer', false
 
   setupGod: ->
-    @god.setLevel @level.serialize @supermodel
+    @god.setLevel @level.serialize @supermodel, @session
     @god.setLevelSessionIDs if @otherSession then [@session.id, @otherSession.id] else [@session.id]
     @god.setWorldClassMap @world.classMap
 
@@ -231,12 +235,13 @@ module.exports = class PlayLevelView extends RootView
     @insertSubView @tome = new TomeView levelID: @levelID, session: @session, otherSession: @otherSession, thangs: @world.thangs, supermodel: @supermodel
     @insertSubView new LevelPlaybackView session: @session
     @insertSubView new GoalsView {}
+    @insertSubView new LevelFlagsView world: @world
     @insertSubView new GoldView {}
     @insertSubView new HUDView {}
     @insertSubView new ChatView levelID: @levelID, sessionID: @session.id, session: @session
     worldName = utils.i18n @level.attributes, 'name'
     @controlBar = @insertSubView new ControlBarView {worldName: worldName, session: @session, level: @level, supermodel: @supermodel, playableTeams: @world.playableTeams}
-  #Backbone.Mediator.publish('level-set-debug', debug: true) if me.displayName() is 'Nick!'
+    #Backbone.Mediator.publish('level-set-debug', debug: true) if me.displayName() is 'Nick'
 
   initVolume: ->
     volume = me.get('volume')
@@ -325,6 +330,15 @@ module.exports = class PlayLevelView extends RootView
     if isReload
       @scriptManager.setScripts(e.level.get('scripts'))
       Backbone.Mediator.publish 'tome:cast-spell'  # a bit hacky
+
+  onLevelReloadThangType: (e) ->
+    tt = e.thangType
+    for url, model of @supermodel.models
+      if model.id is tt.id
+        for key, val of tt.attributes
+          model.attributes[key] = val
+        break
+    Backbone.Mediator.publish 'tome:cast-spell'
 
   onWindowResize: (s...) ->
     $('#pointer').css('opacity', 0.0)
@@ -451,6 +465,7 @@ module.exports = class PlayLevelView extends RootView
     pointer = $('#pointer')
     pointer.css('transition', 'all 0.6s ease-out')
     pointer.css('transform', "rotate(#{@pointerRotation}rad) translate(-3px, #{@pointerRadialDistance-50}px)")
+    Backbone.Mediator.publish 'play-sound', trigger: 'dom_highlight', volume: 0.75
     setTimeout((=>
       pointer.css('transform', "rotate(#{@pointerRotation}rad) translate(-3px, #{@pointerRadialDistance}px)").css('transition', 'all 0.4s ease-in')), 800)
 
@@ -497,10 +512,24 @@ module.exports = class PlayLevelView extends RootView
     @world = e.world
     @world.scripts = scripts
     thangTypes = @supermodel.getModels(ThangType)
-    for [spriteName, message] in @world.thangDialogueSounds()
+    startFrame = @lastWorldFramesLoaded ? 0
+    if @world.frames.length is @world.totalFrames  # Finished loading
+      @lastWorldFramesLoaded = 0
+    else
+      @lastWorldFramesLoaded = @world.frames.length
+    for [spriteName, message] in @world.thangDialogueSounds startFrame
       continue unless thangType = _.find thangTypes, (m) -> m.get('name') is spriteName
       continue unless sound = AudioPlayer.soundForDialogue message, thangType.get('soundTriggers')
       AudioPlayer.preloadSoundReference sound
+
+  # Real-time playback
+  onRealTimePlaybackStarted: (e) ->
+    @$el.addClass('real-time').focus()
+    @onWindowResize()
+
+  onRealTimePlaybackEnded: (e) ->
+    @$el.removeClass 'real-time'
+    @onWindowResize()
 
   destroy: ->
     @levelLoader?.destroy()

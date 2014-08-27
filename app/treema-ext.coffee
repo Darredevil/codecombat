@@ -20,20 +20,30 @@ class LiveEditingMarkup extends TreemaNode.nodeMap.ace
     super(arguments...)
     @schema.aceMode = 'ace/mode/markdown'
 
-  buildValueForEditing: (valEl) ->
+  initEditor: (valEl) ->
+    buttonRow = $('<div class="buttons"></div>')
+    valEl.append(buttonRow)
+    @addPreviewToggle(buttonRow)
+    @addImageUpload(buttonRow)
     super(valEl)
-    @editor.on('change', @onEditorChange)
-    @addImageUpload(valEl)
+    valEl.append($('<div class="preview"></div>'))
 
   addImageUpload: (valEl) ->
     return unless me.isAdmin()
     valEl.append(
-      $('<div></div>').append(
+      $('<div class="pick-image-button"></div>').append(
         $('<button>Pick Image</button>')
           .addClass('btn btn-sm btn-primary')
           .click(=> filepicker.pick @onFileChosen)
       )
     )
+
+  addPreviewToggle: (valEl) ->
+    valEl.append($('<div class="toggle-preview-button"></div>').append(
+      $('<button>Toggle Preview</button>')
+      .addClass('btn btn-sm btn-primary')
+      .click(@togglePreview)
+    ))
 
   onFileChosen: (InkBlob) =>
     body =
@@ -49,14 +59,19 @@ class LiveEditingMarkup extends TreemaNode.nodeMap.ace
   onFileUploaded: (e) =>
     @editor.insert "![#{e.metadata.name}](/file/#{@uploadingPath})"
 
-  onEditorChange: =>
-    @saveChanges()
-    @flushChanges()
-    @getRoot().broadcastChanges()
+  showingPreview: false
 
-  buildValueForDisplay: (valEl) ->
-    @editor?.destroy()
-    valEl.html(marked(@data))
+  togglePreview: =>
+    valEl = @getValEl()
+    if @showingPreview
+      valEl.find('.preview').hide()
+      valEl.find('.pick-image-button').show()
+      valEl.find('.ace_editor').show()
+    else
+      valEl.find('.preview').html(marked(@data)).show()
+      valEl.find('.pick-image-button').hide()
+      valEl.find('.ace_editor').hide()
+    @showingPreview = not @showingPreview
 
 class SoundFileTreema extends TreemaNode.nodeMap.string
   valueClass: 'treema-sound-file'
@@ -208,7 +223,7 @@ codeLanguages =
 
 class CodeLanguagesObjectTreema extends TreemaNode.nodeMap.object
   childPropertiesAvailable: ->
-    (key for key in _.keys(codeLanguages) when not @data[key]?)
+    (key for key in _.keys(codeLanguages) when not @data[key]? and not (key is 'javascript' and @schema.skipJavaScript))
 
 class CodeLanguageTreema extends TreemaNode.nodeMap.string
   buildValueForEditing: (valEl) ->
@@ -225,13 +240,7 @@ class CodeTreema extends TreemaNode.nodeMap.ace
     super(valEl)
     if not @schema.aceMode and mode = codeLanguages[@keyForParent]
       @editor.getSession().setMode mode
-    @editor.on('change', @onEditorChange)
     valEl
-
-  onEditorChange: =>
-    @saveChanges()
-    @flushChanges()
-    @getRoot().broadcastChanges()
 
 class CoffeeTreema extends CodeTreema
   constructor: ->
@@ -308,15 +317,11 @@ class LatestVersionReferenceNode extends TreemaNode
     input.focus().keyup @search
     input.attr('placeholder', @formatDocument(@data)) if @data
 
+  buildSearchURL: (term) -> "#{@url}?term=#{term}&project=true"
+
   search: =>
     term = @getValEl().find('input').val()
     return if term is @lastTerm
-
-    # HACK while search is broken
-    if @collection
-      @lastTerm = term
-      @searchCallback()
-      return
 
     @getSearchResultsEl().empty() if @lastTerm and not term
     return unless term
@@ -324,10 +329,7 @@ class LatestVersionReferenceNode extends TreemaNode
     @getSearchResultsEl().empty().append('Searching')
     @collection = new LatestVersionCollection([], model: @model)
 
-    # HACK while search is broken
-#    @collection.url = "#{@url}?term=#{term}&project=true"
-    @collection.url = "#{@url}?term=#{''}&project=true"
-
+    @collection.url = @buildSearchURL(term)
     @collection.fetch()
     @collection.once 'sync', @searchCallback, @
 
@@ -338,10 +340,6 @@ class LatestVersionReferenceNode extends TreemaNode
       row = $('<div></div>').addClass('treema-search-result-row')
       text = @formatDocument(model)
       continue unless text?
-
-      # HACK while search is broken
-      continue unless text.toLowerCase().indexOf(@lastTerm.toLowerCase()) >= 0
-
       row.addClass('treema-search-selected') if first
       first = false
       row.text(text)
@@ -354,9 +352,10 @@ class LatestVersionReferenceNode extends TreemaNode
   getSearchResultsEl: -> @getValEl().find('.treema-search-results')
   getSelectedResultEl: -> @getValEl().find('.treema-search-selected')
 
+  modelToString: (model) -> model.get('name')
+
   formatDocument: (docOrModel) ->
-    doc = docOrModel.attributes or docOrModel
-    return doc.name if doc.name?
+    return @modelToString(docOrModel) if docOrModel instanceof CocoModel
     return 'Unknown' unless @settings.supermodel?
     m = CocoModel.getReferencedModel(@data, @schema)
     urlGoingFor = m.url()
@@ -366,7 +365,7 @@ class LatestVersionReferenceNode extends TreemaNode
       m.url = -> urlGoingFor
       @settings.supermodel.registerModel(m)
     return 'Unknown' unless m
-    return m.get('name')
+    return @modelToString(m)
 
   saveChanges: ->
     selected = @getSelectedResultEl()
@@ -379,10 +378,12 @@ class LatestVersionReferenceNode extends TreemaNode
     @instance = fullValue
 
   onDownArrowPressed: (e) ->
+    return super(arguments...) unless @isEditing()
     @navigateSearch(1)
     e.preventDefault()
 
   onUpArrowPressed: (e) ->
+    return super(arguments...) unless @isEditing()
     e.preventDefault()
     @navigateSearch(-1)
 
@@ -411,6 +412,13 @@ class LatestVersionReferenceNode extends TreemaNode
     selected = @getSelectedResultEl()
     return not selected.length
 
+class LevelComponentReferenceNode extends LatestVersionReferenceNode
+  # HACK: this list of properties is needed by the thang components edit view and config views.
+  # need a better way to specify this, or keep the search models from bleeding into those
+  # supermodels.
+  buildSearchURL: (term) -> "#{@url}?term=#{term}&project=name,system,original,version,dependencies,configSchema,description"
+  modelToString: (model) -> model.get('system') + '.' + model.get('name')
+  canEdit: -> not @data.original # only allow editing if the row's data hasn't been set yet
 
 LatestVersionReferenceNode.prototype.search = _.debounce(LatestVersionReferenceNode.prototype.search, 200)
 
@@ -431,6 +439,7 @@ module.exports.setup = ->
   TreemaNode.setNodeSubclass('javascript', JavaScriptTreema)
   TreemaNode.setNodeSubclass('image-file', ImageFileTreema)
   TreemaNode.setNodeSubclass('latest-version-reference', LatestVersionReferenceNode)
+  TreemaNode.setNodeSubclass('component-reference', LevelComponentReferenceNode)
   TreemaNode.setNodeSubclass('i18n', InternationalizationNode)
   TreemaNode.setNodeSubclass('sound-file', SoundFileTreema)
   TreemaNode.setNodeSubclass 'slug-props', SlugPropsObject

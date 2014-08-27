@@ -70,6 +70,8 @@ module.exports = class LevelHUDView extends CocoView
     @thang = e.world.thangMap[@thang.id] if @thang
     if hadThang and not @thang
       @setThang null, null
+    else if @thang
+      @createActions()  # Make sure it updates its actions.
 
   setThang: (thang, thangType) ->
     unless @speaker
@@ -195,7 +197,7 @@ module.exports = class LevelHUDView extends CocoView
       @lastResponses = null
     @bubble.append($("<h3>#{@speaker ? 'Captain Anya'}</h3>"))
     @animator = new DialogueAnimator(message, @bubble)
-    @messageInterval = setInterval(@addMoreMessage, 20)
+    @messageInterval = setInterval(@addMoreMessage, 1000 / 30)  # 30 FPS
 
   addMoreMessage: =>
     if @animator.done()
@@ -261,7 +263,7 @@ module.exports = class LevelHUDView extends CocoView
       return null  # included in the bar
     context =
       prop: prop
-      hasIcon: prop in ['health', 'pos', 'target', 'inventory', 'gold', 'bountyGold', 'visualRange', 'attackDamage', 'attackRange', 'maxSpeed']
+      hasIcon: prop in ['health', 'pos', 'target', 'collectedThangIDs', 'gold', 'bountyGold', 'visualRange', 'attackDamage', 'attackRange', 'maxSpeed']
       hasBar: prop in ['health']
     $(prop_template(context))
 

@@ -105,14 +105,14 @@ _.extend ThangTypeSchema.properties,
     shapes: c.object {title: 'Shapes', additionalProperties: ShapeObjectSchema}
     containers: c.object {title: 'Containers', additionalProperties: ContainerObjectSchema}
     animations: c.object {title: 'Animations', additionalProperties: RawAnimationObjectSchema}
-  kind: c.shortString {enum: ['Unit', 'Floor', 'Wall', 'Doodad', 'Misc', 'Mark'], default: 'Misc', title: 'Kind'}
+  kind: c.shortString {enum: ['Unit', 'Floor', 'Wall', 'Doodad', 'Misc', 'Mark', 'Item'], default: 'Misc', title: 'Kind'}
 
   actions: c.object {title: 'Actions', additionalProperties: {$ref: '#/definitions/action'}}
   soundTriggers: c.object {title: 'Sound Triggers', additionalProperties: c.array({}, {$ref: '#/definitions/sound'})},
     say: c.object {format: 'slug-props', additionalProperties: {$ref: '#/definitions/sound'}},
       defaultSimlish: c.array({}, {$ref: '#/definitions/sound'})
       swearingSimlish: c.array({}, {$ref: '#/definitions/sound'})
-  rotationType: {title: 'Rotation', type: 'string', enum: ['isometric', 'fixed']}
+  rotationType: {title: 'Rotation', type: 'string', enum: ['isometric', 'fixed', 'free']}
   matchWorldDimensions: {title: 'Match World Dimensions', type: 'boolean'}
   shadow: {title: 'Shadow Diameter', type: 'number', format: 'meters', description: 'Shadow diameter in meters'}
   layerPriority:
@@ -124,6 +124,7 @@ _.extend ThangTypeSchema.properties,
     type: 'number'
   positions: PositionsSchema
   raster: {type: 'string', format: 'image-file', title: 'Raster Image'}
+  rasterIcon: { type: 'string', format: 'image-file', title: 'Raster Image Icon' }
   colorGroups: c.object
     title: 'Color Groups'
     additionalProperties:

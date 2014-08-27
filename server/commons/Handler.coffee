@@ -8,16 +8,24 @@ User = require '../users/User'
 sendwithus = require '../sendwithus'
 
 PROJECT = {original: 1, name: 1, version: 1, description: 1, slug: 1, kind: 1}
-FETCH_LIMIT = 200
+FETCH_LIMIT = 300
 
 module.exports = class Handler
   # subclasses should override these properties
   modelClass: null
+  privateProperties: []
   editableProperties: []
   postEditableProperties: []
   jsonSchema: {}
   waterfallFunctions: []
   allowedMethods: ['GET', 'POST', 'PUT', 'PATCH']
+
+  constructor: ->
+    # TODO The second 'or' is for backward compatibility only is for backward compatibility only
+    @privateProperties = @modelClass.privateProperties or @privateProperties or []
+    @editableProperties = @modelClass.editableProperties or @editableProperties or []
+    @postEditableProperties = @modelClass.postEditableProperties or @postEditableProperties or []
+    @jsonSchema = @modelClass.jsonSchema or @jsonSchema or {}
 
   # subclasses should override these methods
   hasAccess: (req) -> true
@@ -47,8 +55,9 @@ module.exports = class Handler
 
   # sending functions
   sendUnauthorizedError: (res) -> errors.forbidden(res) #TODO: rename sendUnauthorizedError to sendForbiddenError
-  sendNotFoundError: (res) -> errors.notFound(res)
-  sendMethodNotAllowed: (res) -> errors.badMethod(res)
+  sendForbiddenError: (res) -> errors.forbidden(res)
+  sendNotFoundError: (res, message) -> errors.notFound(res, message)
+  sendMethodNotAllowed: (res, message) -> errors.badMethod(res, @allowedMethods, message)
   sendBadInputError: (res, message) -> errors.badInput(res, message)
   sendDatabaseError: (res, err) ->
     return @sendError(res, err.code, err.response) if err.response and err.code
@@ -60,6 +69,18 @@ module.exports = class Handler
 
   sendSuccess: (res, message) ->
     res.send(message)
+    res.end()
+
+  sendCreated: (res, message) ->
+    res.send 201, message
+    res.end()
+
+  sendAccepted: (res, message) ->
+    res.send 202, message
+    res.end()
+
+  sendNoContent: (res) ->
+    res.send 204
     res.end()
 
   # generic handlers
@@ -158,7 +179,9 @@ module.exports = class Handler
     ids = ids.split(',') if _.isString ids
     ids = _.uniq ids
 
-    project = {name:1, original:1}
+    # HACK: levels loading thang types need the components returned as well
+    # Need a way to specify a projection for a query.
+    project = {name:1, original:1, kind:1, components: 1}
     sort = {'version.major':-1, 'version.minor':-1}
 
     makeFunc = (id) =>
@@ -432,6 +455,13 @@ module.exports = class Handler
       res.send dict
       res.end()
 
-  delete: (req, res) -> @sendMethodNotAllowed res, @allowedMethods, 'DELETE not allowed.'
+  delete: (req, res) -> @sendMethodNotAllowed res, 'DELETE not allowed.'
 
-  head: (req, res) -> @sendMethodNotAllowed res, @allowedMethods, 'HEAD not allowed.'
+  head: (req, res) -> @sendMethodNotAllowed res, 'HEAD not allowed.'
+
+  # This is not a Mongoose user
+  projectionForUser: (req, model, ownerID) ->
+    return {} if 'privateProperties' not of model or req.user._id + '' is ownerID + '' or req.user.isAdmin()
+    projection = {}
+    projection[field] = 0 for field in model.privateProperties
+    projection

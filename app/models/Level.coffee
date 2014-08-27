@@ -8,9 +8,8 @@ module.exports = class Level extends CocoModel
   @schema: require 'schemas/models/level'
   urlRoot: '/db/level'
 
-  serialize: (supermodel) ->
-    # o = _.cloneDeep @attributes  # slow in level editor when there are hundreds of Thangs
-    o = $.extend true, {}, @attributes
+  serialize: (supermodel, session) ->
+    o = @denormalize supermodel, session
 
     # Figure out Components
     o.levelComponents = _.cloneDeep (lc.attributes for lc in supermodel.getModels LevelComponent)
@@ -22,8 +21,66 @@ module.exports = class Level extends CocoModel
     o.systems = @sortSystems o.systems, systemModels
     @fillInDefaultSystemConfiguration o.systems
 
-    o.thangTypes = (original: tt.get('original'), name: tt.get('name') for tt in supermodel.getModels ThangType)
+    # Figure out ThangTypes' Components
+    o.thangTypes = (original: tt.get('original'), name: tt.get('name'), components: $.extend(true, [], tt.get('components')) for tt in supermodel.getModels ThangType)
+    @sortThangComponents o.thangTypes, o.levelComponents
+    @fillInDefaultComponentConfiguration o.thangTypes, o.levelComponents
+
     o
+
+  denormalize: (supermodel, session) ->
+    o = $.extend true, {}, @attributes
+    if @get('type') is 'hero'
+      # TOOD: figure out if/when/how we are doing this for non-Hero levels that aren't expecting denormalization.
+      for levelThang in o.thangs
+        @denormalizeThang(levelThang, supermodel, session)
+    o
+
+  denormalizeThang: (levelThang, supermodel, session) ->
+    levelThang.components ?= []
+    thangType = supermodel.getModelByOriginal(ThangType, levelThang.thangType)
+
+    # Empty out placeholder Components and store their values if we're the hero placeholder.
+    placeholders = {}
+    if levelThang.id is 'Hero Placeholder'
+      for thangComponent in levelThang.components ? []
+        placeholders[thangComponent.original] = thangComponent
+      levelThang.components = []
+      heroThangType = session?.get('heroConfig')?.thangType
+      levelThang.thangType = heroThangType if heroThangType
+
+    configs = {}
+    for thangComponent in levelThang.components
+      configs[thangComponent.original] = thangComponent
+
+    for defaultThangComponent in thangType.get('components')
+      if levelThangComponent = configs[defaultThangComponent.original]
+        # Take the ThangType default Components and merge level-specific Component config into it
+        copy = $.extend true, {}, defaultThangComponent.config
+        levelThangComponent.config = _.merge copy, levelThangComponent.config
+
+      else
+        # Just add the Component as is
+        levelThangComponent = $.extend true, {}, defaultThangComponent
+        levelThang.components.push levelThangComponent
+
+      if placeholderComponent = placeholders[defaultThangComponent.original]
+        placeholderConfig = placeholderComponent.config ? {}
+        if placeholderConfig.pos  # Pull in Physical pos x and y
+          levelThangComponent.config.pos ?= {}
+          levelThangComponent.config.pos.x = placeholderConfig.pos.x
+          levelThangComponent.config.pos.y = placeholderConfig.pos.y
+        else if placeholderConfig.team  # Pull in Allied team
+          levelThangComponent.config.team = placeholderConfig.team
+        else if placeholderConfig.programmableMethods
+          # Take the ThangType default Programmable and merge level-specific Component config into it
+          copy = $.extend true, {}, placeholderConfig
+          levelThangComponent.config = _.merge copy, levelThangComponent.config
+
+    if levelThang.id is 'Hero Placeholder' and equips = _.find levelThang.components, {original: LevelComponent.EquipsID}
+      inventory = session?.get('heroConfig')?.inventory
+      equips.config.inventory = $.extend true, {}, inventory if inventory
+
 
   sortSystems: (levelSystems, systemModels) ->
     [sorted, originalsSeen] = [[], {}]
@@ -53,14 +110,15 @@ module.exports = class Level extends CocoModel
       visit = (c) ->
         return if c in sorted
         lc = _.find levelComponents, {original: c.original}
-        console.error thang.id, 'couldn\'t find lc for', c unless lc
+        console.error thang.id or thang.name, 'couldn\'t find lc for', c, 'of', levelComponents unless lc
+        return unless lc
         if lc.name is 'Programmable'
           # Programmable always comes last
           visit c2 for c2 in _.without thang.components, c
         else
           for d in lc.dependencies or []
             c2 = _.find thang.components, {original: d.original}
-            console.error thang.id, 'couldn\'t find dependent Component', d.original, 'from', lc.name unless c2
+            console.error thang.id or thang.name, 'couldn\'t find dependent Component', d.original, 'from', lc.name unless c2
             visit c2 if c2
           if lc.name is 'Collides'
             allied = _.find levelComponents, {name: 'Allied'}

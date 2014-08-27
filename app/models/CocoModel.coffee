@@ -1,8 +1,6 @@
 storage = require 'lib/storage'
 deltasLib = require 'lib/deltas'
 
-NewAchievementCollection = require '../collections/NewAchievementCollection'
-
 class CocoModel extends Backbone.Model
   idAttribute: '_id'
   loaded: false
@@ -24,8 +22,17 @@ class CocoModel extends Backbone.Model
     @on 'error', @onError, @
     @on 'add', @onLoaded, @
     @saveBackup = _.debounce(@saveBackup, 500)
-    
-  setProjection: (@project) ->
+
+  setProjection: (project) ->
+    return if project is @project
+    url = @getURL()
+    url += '&project=' unless /project=/.test url
+    url = url.replace '&', '?' unless /\?/.test url
+    url = url.replace /project=[^&]*/, "project=#{project?.join(',') or ''}"
+    url = url.replace /[&?]project=&/, '&' unless project?.length
+    url = url.replace /[&?]project=$/, '' unless project?.length
+    @setURL url
+    @project = project
 
   type: ->
     @constructor.className
@@ -63,7 +70,7 @@ class CocoModel extends Backbone.Model
       CocoModel.backedUp[@id] = @
 
   saveBackup: -> @saveBackupNow()
-    
+
   saveBackupNow: ->
     storage.save(@id, @attributes)
     CocoModel.backedUp[@id] = @
@@ -220,6 +227,9 @@ class CocoModel extends Backbone.Model
     catch error
       console.error 'Error applying delta\n', JSON.stringify(delta, null, '\t'), '\n\nto attributes\n\n', newAttributes
       return false
+    for key, value of newAttributes
+      delete newAttributes[key] if _.isEqual value, @attributes[key]
+
     @set newAttributes
     return true
 
@@ -298,11 +308,13 @@ class CocoModel extends Backbone.Model
     return if _.isString @url then @url else @url()
 
   @pollAchievements: ->
+    NewAchievementCollection = require '../collections/NewAchievementCollection' # Nasty mutual inclusion if put on top
     achievements = new NewAchievementCollection
-    achievements.fetch(
+    achievements.fetch
       success: (collection) ->
         me.fetch (success: -> Backbone.Mediator.publish('achievements:new', collection)) unless _.isEmpty(collection.models)
-    )
+      error: ->
+        console.error 'Miserably failed to fetch unnotified achievements', arguments
 
 CocoModel.pollAchievements = _.debounce CocoModel.pollAchievements, 500
 

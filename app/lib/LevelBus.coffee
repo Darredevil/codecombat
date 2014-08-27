@@ -1,6 +1,7 @@
 Bus = require './Bus'
 {me} = require 'lib/auth'
 LevelSession = require 'models/LevelSession'
+utils = require 'lib/utils'
 
 module.exports = class LevelBus extends Bus
 
@@ -22,6 +23,7 @@ module.exports = class LevelBus extends Bus
     'tome:spell-changed': 'onSpellChanged'
     'tome:spell-created': 'onSpellCreated'
     'application:idle-changed': 'onIdleChanged'
+    'goal-manager:new-goal-states': 'onNewGoalStates'
 
   constructor: ->
     super(arguments...)
@@ -123,7 +125,8 @@ module.exports = class LevelBus extends Bus
     @changedSessionProperties.teamSpells = true
     @session.set({'teamSpells': @teamSpellMap})
     @saveSession()
-    if spellTeam is me.team or spellTeam is 'common'
+    if spellTeam is me.team or (e.spell.otherSession and spellTeam isnt e.spell.otherSession.get('team'))
+      # https://github.com/codecombat/codecombat/issues/81
       @onSpellChanged e  # Save the new spell to the session, too.
 
   onScriptStateChanged: (e) ->
@@ -191,6 +194,16 @@ module.exports = class LevelBus extends Bus
     @session.set('state', state)
     @changedSessionProperties.state = true
     @saveSession()
+
+  onNewGoalStates: ({goalStates})->
+    state = @session.get 'state'
+    unless utils.kindaEqual state.goalStates, goalStates  # Only save when goals really change
+      # TODO: this log doesn't capture when null-status goals are being set during world streaming. Where can they be coming from?
+      return console.error("Somehow trying to save null goal states!", goalStates) if _.find(goalStates, (gs) -> not gs.status)
+      state.goalStates = goalStates
+      @session.set 'state', state
+      @changedSessionProperties.state = true
+      @saveSession()
 
   onPlayerJoined: (snapshot) =>
     super(arguments...)

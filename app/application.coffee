@@ -1,11 +1,11 @@
 FacebookHandler = require 'lib/FacebookHandler'
 GPlusHandler = require 'lib/GPlusHandler'
 LinkedInHandler = require 'lib/LinkedInHandler'
-locale = require 'locale/locale'
+GitHubHandler = require 'lib/GitHubHandler'
+locale = require 'locale/locale'  # TODO: don't require all of these? Might be slow. (Haven't checked.)
 {me} = require 'lib/auth'
 Tracker = require 'lib/Tracker'
 CocoView = require 'views/kinds/CocoView'
-AchievementNotify = require '../../templates/achievement_notify'
 
 marked.setOptions {gfm: true, sanitize: true, smartLists: true, breaks: false}
 
@@ -36,11 +36,12 @@ preload = (arrayOfImages) ->
 
 Application = initialize: ->
   Router = require('Router')
+  @isProduction = -> document.location.href.search('codecombat.com') isnt -1
   @tracker = new Tracker()
   @facebookHandler = new FacebookHandler()
   @gplusHandler = new GPlusHandler()
+  @githubHandler = new GitHubHandler()
   $(document).bind 'keydown', preventBackspace
-  $.notify.addStyle 'achievement', html: $(AchievementNotify())
   @linkedinHandler = new LinkedInHandler()
   preload(COMMON_FILES)
   $.i18n.init {

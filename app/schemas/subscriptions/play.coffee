@@ -29,9 +29,6 @@ module.exports =
   'level-set-debug':
     {} # TODO schema
 
-  'level-set-grid':
-    {} # TODO schema
-
   'level:restarted':
     {} # TODO schema
 
@@ -56,6 +53,48 @@ module.exports =
 
   'level:victory-hidden':
     {} # TODO schema
+
+  'level:flag-color-selected':
+    type: 'object'
+    additionalProperties: false
+    properties:
+      color:
+        oneOf: [
+          {type: 'null'}
+          {type: 'string', enum: ['green', 'black', 'violet'], description: 'The flag color to place next, or omitted/null if deselected.'}
+        ]
+      pos:
+        type: 'object'
+        additionalProperties: false
+        required: ['x', 'y']
+        properties:
+          x: {type: 'number'}
+          y: {type: 'number'}
+
+  'level:flag-updated':
+    type: 'object'
+    additionalProperties: false
+    required: ['player', 'color', 'time', 'active']
+    properties:
+      player:
+        type: 'string'
+      team:
+        type: 'string'
+      color:
+        type: 'string'
+        enum: ['green', 'black', 'violet']
+      time:
+        type: 'number'
+        minimum: 0
+      active:
+        type: 'boolean'
+      pos:
+        type: 'object'
+        additionalProperties: false
+        required: ['x', 'y']
+        properties:
+          x: {type: 'number'}
+          y: {type: 'number'}
 
   'next-game-pressed':
     {} # TODO schema
@@ -104,6 +143,18 @@ module.exports =
 
   'playback:manually-scrubbed':
     {} # TODO schema
+
+  'playback:stop-real-time-playback':
+    type: 'object'
+    additionalProperties: false
+
+  'playback:real-time-playback-started':
+    type: 'object'
+    additionalProperties: false
+
+  'playback:real-time-playback-ended':
+    type: 'object'
+    additionalProperties: false
 
   'change:editor-config':
     {} # TODO schema

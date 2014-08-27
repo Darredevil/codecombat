@@ -38,7 +38,6 @@ module.exports = class SpectateLevelView extends RootView
   template: template
   cache: false
   shortcutsEnabled: true
-  startsLoading: true
   isEditorPreview: false
 
   subscriptions:
@@ -55,6 +54,7 @@ module.exports = class SpectateLevelView extends RootView
     'surface:world-set-up': 'onSurfaceSetUpNewWorld'
     'level:set-team': 'setTeam'
     'god:new-world-created': 'loadSoundsForWorld'
+    'god:streaming-world-updated': 'loadSoundsForWorld'
     'next-game-pressed': 'onNextGamePressed'
     'level:started': 'onLevelStarted'
     'level:loading-view-unveiled': 'onLoadingViewUnveiled'
@@ -69,7 +69,6 @@ module.exports = class SpectateLevelView extends RootView
     console.profile?() if PROFILE_ME
     super options
     $(window).on('resize', @onWindowResize)
-    @listenToOnce(@supermodel, 'error', @onLevelLoadError)
 
     @sessionOne = @getQueryVariable 'session-one'
     @sessionTwo = @getQueryVariable 'session-two'
@@ -86,11 +85,8 @@ module.exports = class SpectateLevelView extends RootView
     else
       @load()
 
-  onLevelLoadError: (e) =>
-    application.router.navigate "/play?not_found=#{@levelID}", {trigger: true}
-
   setLevel: (@level, @supermodel) ->
-    serializedLevel = @level.serialize @supermodel
+    serializedLevel = @level.serialize @supermodel, @session
     @god?.setLevel serializedLevel
     if @world
       @world.loadFromLevel serializedLevel, false
@@ -105,7 +101,6 @@ module.exports = class SpectateLevelView extends RootView
       opponentSessionID: @sessionTwo
       spectateMode: true
       team: @getQueryVariable('team')
-    @listenToOnce(@levelLoader, 'loaded-all', @onLevelLoaderLoaded)
     @god = new God maxAngels: 1
 
   getRenderData: ->
@@ -120,42 +115,15 @@ module.exports = class SpectateLevelView extends RootView
     super()
     $('body').addClass('is-playing')
 
-  updateProgress: (progress) ->
-    super(progress)
-    return if @seenDocs
-    return unless showFrequency = @levelLoader.level.get('showGuide')
-    session = @levelLoader.session
-    diff = new Date().getTime() - new Date(session.get('created')).getTime()
-    return if showFrequency is 'first-time' and diff > (5 * 60 * 1000)
-    return unless @levelLoader.level.loaded
-    articles = @levelLoader.supermodel.getModels Article
-    for article in articles
-      return unless article.loaded
-    @showGuide()
-
-  showGuide: ->
-    @seenDocs = true
-    DocsModal = require './level/modal/docs_modal'
-    options = {docs: @levelLoader.level.get('documentation'), supermodel: @supermodel}
-    @openModalView(new DocsModal(options), true)
-    Backbone.Mediator.subscribeOnce 'modal-closed', @onLevelLoaderLoaded, @
-    return true
-
   onLoaded: ->
     _.defer => @onLevelLoaded()
 
   onLevelLoaded: ->
-    return unless @levelLoader.progress() is 1 # double check, since closing the guide may trigger this early
-    # Save latest level played in local storage
-    if window.currentModal and not window.currentModal.destroyed
-      @loadingView.showReady()
-      return Backbone.Mediator.subscribeOnce 'modal-closed', @onLevelLoaderLoaded, @
-
     @grabLevelLoaderData()
     #at this point, all requisite data is loaded, and sessions are not denormalized
     team = @world.teamForPlayer(0)
     @loadOpponentTeam(team)
-    @god.setLevel @level.serialize @supermodel
+    @god.setLevel @level.serialize @supermodel, @session
     @god.setLevelSessionIDs if @otherSession then [@session.id, @otherSession.id] else [@session.id]
     @god.setWorldClassMap @world.classMap
     @setTeam team
@@ -239,7 +207,7 @@ module.exports = class SpectateLevelView extends RootView
     @insertSubView new HUDView {}
     worldName = utils.i18n @level.attributes, 'name'
     @controlBar = @insertSubView new ControlBarView {worldName: worldName, session: @session, level: @level, supermodel: @supermodel, playableTeams: @world.playableTeams, spectateGame: true}
-  #Backbone.Mediator.publish('level-set-debug', debug: true) if me.displayName() is 'Nick!'
+    #Backbone.Mediator.publish('level-set-debug', debug: true) if me.displayName() is 'Nick'
 
   afterInsert: ->
     super()

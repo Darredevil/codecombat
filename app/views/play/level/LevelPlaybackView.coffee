@@ -18,25 +18,25 @@ module.exports = class LevelPlaybackView extends CocoView
     'level-scrub-back': 'onScrubBack'
     'level-set-volume': 'onSetVolume'
     'level-set-debug': 'onSetDebug'
-    'level-set-grid': 'onSetGrid'
-    'level-toggle-grid': 'onToggleGrid'
     'surface:frame-changed': 'onFrameChanged'
     'god:new-world-created': 'onNewWorld'
+    'god:streaming-world-updated': 'onNewWorld'
     'level-set-letterbox': 'onSetLetterbox'
-    'tome:cast-spells': 'onCastSpells'
+    'tome:cast-spells': 'onTomeCast'
+    'playback:real-time-playback-ended': 'onRealTimePlaybackEnded'
+    'playback:stop-real-time-playback': 'onStopRealTimePlayback'
 
   events:
     'click #debug-toggle': 'onToggleDebug'
-    'click #grid-toggle': 'onToggleGrid'
     'click #edit-wizard-settings': 'onEditWizardSettings'
     'click #edit-editor-config': 'onEditEditorConfig'
     'click #view-keyboard-shortcuts': 'onViewKeyboardShortcuts'
     'click #music-button': 'onToggleMusic'
-    'click #zoom-in-button': -> Backbone.Mediator.publish('camera-zoom-in') unless @shouldIgnore()
-    'click #zoom-out-button': -> Backbone.Mediator.publish('camera-zoom-out') unless @shouldIgnore()
+    'click #zoom-in-button': -> Backbone.Mediator.publish('camera-zoom-in', {}) unless @shouldIgnore()
+    'click #zoom-out-button': -> Backbone.Mediator.publish('camera-zoom-out', {}) unless @shouldIgnore()
     'click #volume-button': 'onToggleVolume'
     'click #play-button': 'onTogglePlay'
-    'click': -> Backbone.Mediator.publish 'tome:focus-editor'
+    'click': -> Backbone.Mediator.publish 'tome:focus-editor', {} unless @realTime
     'mouseenter #timeProgress': 'onProgressEnter'
     'mouseleave #timeProgress': 'onProgressLeave'
     'mousemove #timeProgress': 'onProgressHover'
@@ -114,6 +114,15 @@ module.exports = class LevelPlaybackView extends CocoView
     ua = navigator.userAgent.toLowerCase()
     if /safari/.test(ua) and not /chrome/.test(ua)
       @$el.find('.toggle-fullscreen').hide()
+    @timePopup ?= new HoverPopup
+    t = $.i18n.t
+    @second = t 'units.second'
+    @seconds = t 'units.seconds'
+    @minute = t 'units.minute'
+    @minutes = t 'units.minutes'
+    @goto = t 'play_level.time_goto'
+    @current = t 'play_level.time_current'
+    @total = t 'play_level.time_total'
 
   updatePopupContent: ->
     @timePopup?.updateContent "<h2>#{@timeToString @newTime}</h2>#{@formatTime(@current, @currentTime)}<br/>#{@formatTime(@total, @totalTime)}"
@@ -142,42 +151,39 @@ module.exports = class LevelPlaybackView extends CocoView
     @$el.find('#music-button').toggleClass('music-on', me.get('music'))
 
   onSetLetterbox: (e) ->
-    buttons = @$el.find '#play-button, .scrubber-handle'
-    buttons.css 'visibility', if e.on then 'hidden' else 'visible'
+    return if @realTime
+    @togglePlaybackControls !e.on
     @disabled = e.on
+
+  togglePlaybackControls: (to) ->
+    buttons = @$el.find '#play-button, .scrubber-handle'
+    buttons.css 'visibility', if to then 'visible' else 'hidden'
+
+  onTomeCast: (e) ->
+    return unless e.realTime
+    @realTime = true
+    @togglePlaybackControls false
+    Backbone.Mediator.publish 'playback:real-time-playback-started', {}
 
   onWindowResize: (s...) =>
     @barWidth = $('.progress', @$el).width()
 
   onNewWorld: (e) ->
-    @totalTime = e.world.totalFrames / e.world.frameRate
-    pct = parseInt(100 * e.world.totalFrames / e.world.maxTotalFrames) + '%'
+    @updateBarWidth e.world.frames.length, e.world.maxTotalFrames, e.world.dt
+
+  updateBarWidth: (loadedFrameCount, maxTotalFrames, dt) ->
+    @totalTime = loadedFrameCount * dt
+    pct = parseInt(100 * loadedFrameCount / maxTotalFrames) + '%'
     @barWidth = $('.progress', @$el).css('width', pct).show().width()
-    @casting = false
     $('.scrubber .progress', @$el).slider('enable', true)
     @newTime = 0
     @currentTime = 0
-
-    @timePopup ?= new HoverPopup
-
-    t = $.i18n.t
-    @second = t 'units.second'
-    @seconds = t 'units.seconds'
-    @minute = t 'units.minute'
-    @minutes = t 'units.minutes'
-    @goto = t 'play_level.time_goto'
-    @current = t 'play_level.time_current'
-    @total = t 'play_level.time_total'
+    @lastLoadedFrameCount = loadedFrameCount
 
   onToggleDebug: ->
     return if @shouldIgnore()
     flag = $('#debug-toggle i.icon-ok')
     Backbone.Mediator.publish('level-set-debug', {debug: flag.hasClass('invisible')})
-
-  onToggleGrid: ->
-    return if @shouldIgnore()
-    flag = $('#grid-toggle i.icon-ok')
-    Backbone.Mediator.publish('level-set-grid', {grid: flag.hasClass('invisible')})
 
   onEditWizardSettings: ->
     Backbone.Mediator.publish 'edit-wizard-settings'
@@ -187,11 +193,6 @@ module.exports = class LevelPlaybackView extends CocoView
 
   onViewKeyboardShortcuts: ->
     @openModalView new KeyboardShortcutsModal()
-
-  onCastSpells: (e) ->
-    return if e.preload
-    @casting = true
-    @$progressScrubber.slider('disable', true)
 
   onDisableControls: (e) ->
     if not e.controls or 'playback' in e.controls
@@ -205,6 +206,7 @@ module.exports = class LevelPlaybackView extends CocoView
     $('#volume-button', @$el).removeClass('disabled')
 
   onEnableControls: (e) ->
+    return if @realTime
     if not e.controls or 'playback' in e.controls
       @disabled = false
       $('button', @$el).removeClass('disabled')
@@ -255,7 +257,7 @@ module.exports = class LevelPlaybackView extends CocoView
       # @currentTime = @totalTime if Math.abs(@totalTime - @currentTime) < 0.04
       @updatePopupContent() if @timePopup?.shown
 
-      @updateProgress(e.progress)
+      @updateProgress(e.progress, e.world)
       @updatePlayButton(e.progress)
     @lastProgress = e.progress
 
@@ -277,42 +279,55 @@ module.exports = class LevelPlaybackView extends CocoView
     if @timePopup and Math.abs(@currentTime - @newTime) < 1 and not @timePopup.shown
       @timePopup.show()
 
-  updateProgress: (progress) ->
-    $('.scrubber .progress-bar', @$el).css('width', "#{progress*100}%")
+  updateProgress: (progress, world) ->
+    if world.frames.length isnt @lastLoadedFrameCount
+      @updateBarWidth world.frames.length, world.maxTotalFrames, world.dt
+    wasLoaded = @worldCompletelyLoaded
+    @worldCompletelyLoaded = world.frames.length is world.totalFrames
+    if @realTime and @worldCompletelyLoaded and not wasLoaded
+      Backbone.Mediator.publish 'playback:real-time-playback-ended', {}
+    $('.scrubber .progress-bar', @$el).css('width', "#{progress * 100}%")
 
   updatePlayButton: (progress) ->
-    if progress >= 0.99 and @lastProgress < 0.99
+    if @worldCompletelyLoaded and progress >= 0.99 and @lastProgress < 0.99
       $('#play-button').removeClass('playing').removeClass('paused').addClass('ended')
+      Backbone.Mediator.publish 'playback:real-time-playback-ended', {} if @realTime
     if progress < 0.99 and @lastProgress >= 0.99
       b = $('#play-button').removeClass('ended')
       if @playing then b.addClass('playing') else b.addClass('paused')
+
+  onRealTimePlaybackEnded: (e) ->
+    return unless @realTime
+    @realTime = false
+    @togglePlaybackControls true
+
+  onStopRealTimePlayback: (e) ->
+    Backbone.Mediator.publish 'playback:real-time-playback-ended', {}
 
   onSetDebug: (e) ->
     flag = $('#debug-toggle i.icon-ok')
     flag.toggleClass 'invisible', not e.debug
 
-  onSetGrid: (e) ->
-    flag = $('#grid-toggle i.icon-ok')
-    flag.toggleClass 'invisible', not e.grid
-
   # to refactor
 
   hookUpScrubber: ->
     @sliderIncrements = 500  # max slider width before we skip pixels
-    @clickingSlider = false  # whether the mouse has been pressed down without moving
     @$progressScrubber.slider(
       max: @sliderIncrements
       animate: 'slow'
       slide: (event, ui) =>
+        return if @shouldIgnore()
         @scrubTo ui.value / @sliderIncrements
         @slideCount += 1
 
       start: (event, ui) =>
+        return if @shouldIgnore()
         @slideCount = 0
         @wasPlaying = @playing
         Backbone.Mediator.publish 'level-set-playing', {playing: false}
 
       stop: (event, ui) =>
+        return if @shouldIgnore()
         @actualProgress = ui.value / @sliderIncrements
         Backbone.Mediator.publish 'playback:manually-scrubbed', ratio: @actualProgress
         Backbone.Mediator.publish 'level-set-playing', {playing: @wasPlaying}
@@ -329,7 +344,7 @@ module.exports = class LevelPlaybackView extends CocoView
     return if @shouldIgnore()
     Backbone.Mediator.publish 'level-set-time', ratio: ratio, scrubDuration: duration
 
-  shouldIgnore: -> return @disabled or @casting or false
+  shouldIgnore: -> return @disabled or @realTime
 
   onTogglePlay: (e) ->
     e?.preventDefault()

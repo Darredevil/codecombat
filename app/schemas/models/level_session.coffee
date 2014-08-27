@@ -56,6 +56,13 @@ _.extend LevelSessionSchema.properties,
   screenshot:
     type: 'string'
 
+  heroConfig: c.object {description: 'Which hero the player is using, equipped with what inventory.'},
+    inventory:
+      type: 'object'
+      description: 'The inventory of the hero: slots to item ThangTypes.'
+      additionalProperties: c.objectId(description: 'An item ThangType.')
+    thangType: c.objectId(links: [{rel: 'db', href: '/db/thang.type/{($)}/version'}], title: 'Thang Type', description: 'The ThangType of the hero.', format: 'thang-type')
+
   state: c.object {},
     complete:
       type: 'boolean'
@@ -97,6 +104,14 @@ _.extend LevelSessionSchema.properties,
                   type: 'object'
                 source:
                   type: 'string'
+    goalStates:
+      type: 'object'
+      description: 'Maps Goal ID on a goal state object'
+      additionalProperties:
+        title: 'Goal State'
+        type: 'object'
+        properties:
+          status: enum: ['failure', 'incomplete', 'success']
 
   code:
     type: 'object'

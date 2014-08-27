@@ -18,8 +18,7 @@ module.exports = class MainPlayView extends RootView
   constructor: (options) ->
     super options
     @levelStatusMap = {}
-    @sessions = new LevelSessionsCollection()
-    @sessions.fetch()
+    @sessions = @supermodel.loadCollection(new LevelSessionsCollection(), 'your_sessions', null, 0).model
     @listenToOnce @sessions, 'sync', @onSessionsLoaded
 
   onSessionsLoaded: (e) ->
@@ -29,8 +28,6 @@ module.exports = class MainPlayView extends RootView
 
   getRenderData: (context={}) ->
     context = super(context)
-    context.home = true
-    context.notFound = @getQueryVariable 'not_found'
     tutorials = [
       {
         name: 'Rescue Mission'
@@ -143,14 +140,14 @@ module.exports = class MainPlayView extends RootView
     ]
 
     arenas = [
-      #{
-      #  name: 'Criss-Cross'
-      #  difficulty: 4
-      #  id: 'criss-cross'
-      #  image: '/file/db/level/528aea2d7f37fc4e0700016b/its_a_trap_icon.png'
-      #  description: 'Participate in a bidding war with opponents to reach the other side!'
-      #  levelPath: 'ladder'
-      #}
+      {
+        name: 'Criss-Cross'
+        difficulty: 5
+        id: 'criss-cross'
+        image: '/file/db/level/528aea2d7f37fc4e0700016b/its_a_trap_icon.png'
+        description: 'Participate in a bidding war with opponents to reach the other side!'
+        levelPath: 'ladder'
+      }
       {
         name: 'Greed'
         difficulty: 4
@@ -183,6 +180,59 @@ module.exports = class MainPlayView extends RootView
         description: 'Combat the armies of other Wizards in a strategic forest arena! (Fast computer required.)'
         levelPath: 'ladder'
       }
+      {
+        name: 'Sky Span (Testing)'
+        difficulty: 3
+        id: 'sky-span'
+        image: '/file/db/level/526ae95c1e5cd30000000008/zone_of_danger_icon.png'
+        description: 'Preview version of an upgraded Dungeon Arena. Help us with hero balance before release!'
+        levelPath: 'ladder'
+      }
+    ]
+
+    classicAlgorithms = [
+      {
+        name: 'Bubble Sort Bootcamp Battle'
+        difficulty: 3
+        id: 'bubble-sort-bootcamp-battle'
+        image: '/file/db/level/525ef8ef06e1ab0962000003/commanding_followers_icon.png'
+        description: 'Write a bubble sort to organize your soldiers. - by Alexandru Caciulescu'
+      }
+      {
+        name: 'Ogres of Hanoi'
+        difficulty: 3
+        id: 'ogres-of-hanoi'
+        image: '/file/db/level/526fd3043c637ece50001bb2/the_herd_icon.png'
+        description: 'Transfer a stack of ogres while preserving their honor. - by Alexandru Caciulescu'
+      }
+      {
+        name: 'Danger! Minefield'
+        difficulty: 3
+        id: 'danger-minefield'
+        image: '/file/db/level/526bda3fe79aefde2a003e36/mobile_artillery_icon.png'
+        description: 'Learn how to find prime numbers while defusing mines! - by Alexandru Caciulescu'
+      }
+      {
+        name: 'K-means++ Cluster Wars'
+        difficulty: 4
+        id: 'k-means-cluster-wars'
+        image: '/file/db/level/525ef8ef06e1ab0962000003/commanding_followers_icon.png'
+        description: 'Learn cluster analysis while leading armies into battle! - by Alexandru Caciulescu'
+      }
+      {
+        name: 'Quicksort the Spiral'
+        difficulty: 3
+        id: 'quicksort-the-spiral'
+        image: '/file/db/level/525ef8ef06e1ab0962000003/commanding_followers_icon.png'
+        description: 'Learn Quicksort while sorting a spiral of ogres! - by Alexandru Caciulescu'
+      }
+      {
+        name: 'Minimax Tic-Tac-Toe'
+        difficulty: 4
+        id: 'minimax-tic-tac-toe'
+        image: '/file/db/level/525ef8ef06e1ab0962000003/commanding_followers_icon.png'
+        description: 'Learn how to make a game AI with the Minimax algorithm. - by Alexandru Caciulescu'
+      }
     ]
 
     playerCreated = [
@@ -213,34 +263,6 @@ module.exports = class MainPlayView extends RootView
         id: 'coin-mania'
         image: '/file/db/level/529662dfe0df8f0000000007/grab_the_mushroom_icon.png'
         description: 'Learn while-loops to grab coins and potions. - by Prabh Simran Singh Baweja'
-      }
-      {
-        name: 'Bubble Sort Bootcamp Battle'
-        difficulty: 3
-        id: 'bubble-sort-bootcamp-battle'
-        image: '/file/db/level/525ef8ef06e1ab0962000003/commanding_followers_icon.png'
-        description: 'Write a bubble sort to organize your soldiers. - by Alexandru Caciulescu'
-      }
-      {
-        name: 'Ogres of Hanoi'
-        difficulty: 3
-        id: 'ogres-of-hanoi'
-        image: '/file/db/level/526fd3043c637ece50001bb2/the_herd_icon.png'
-        description: 'Transfer a stack of ogres while preserving their honor. - by Alexandru Caciulescu'
-      }
-      {
-        name: 'Danger! Minefield'
-        difficulty: 3
-        id: 'danger-minefield'
-        image: '/file/db/level/526bda3fe79aefde2a003e36/mobile_artillery_icon.png'
-        description: 'Learn how to find prime numbers while defusing mines! - by Alexandru Caciulescu'
-      }
-      {
-        name: 'K-means++ Cluster Wars'
-        difficulty: 4
-        id: 'k-means-cluster-wars'
-        image: '/file/db/level/525ef8ef06e1ab0962000003/commanding_followers_icon.png'
-        description: 'Learn cluster analysis while leading armies into battle! - by Alexandru Caciulescu'
       }
       {
         name: 'Find the Spy'
@@ -276,6 +298,7 @@ module.exports = class MainPlayView extends RootView
       {id: 'beginner', name: 'Beginner Campaign', description: '... in which you learn the wizardry of programming.', levels: tutorials}
       {id: 'multiplayer', name: 'Multiplayer Arenas', description: '... in which you code head-to-head against other players.', levels: arenas}
       {id: 'dev', name: 'Random Harder Levels', description: '... in which you learn the interface while doing something a little harder.', levels: experienced}
+      {id: 'classic' ,name: 'Classic Algorithms', description: '... in which you learn the most popular algorithms in Computer Science.', levels: classicAlgorithms}
       {id: 'player_created', name: 'Player-Created', description: '... in which you battle against the creativity of your fellow <a href=\"/contribute#artisan\">Artisan Wizards</a>.', levels: playerCreated}
     ]
     context.levelStatusMap = @levelStatusMap

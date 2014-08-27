@@ -28,7 +28,6 @@ module.exports = class ThangsTabView extends CocoView
   id: 'editor-level-thangs-tab-view'
   className: 'tab-pane active'
   template: thangs_template
-  startsLoading: true
 
   subscriptions:
     'surface:sprite-selected': 'onExtantThangSelected'
@@ -58,8 +57,8 @@ module.exports = class ThangsTabView extends CocoView
     'delete, del, backspace': 'deleteSelectedExtantThang'
     'left': -> @moveAddThangSelection -1
     'right': -> @moveAddThangSelection 1
-    'ctrl+z': 'undoAction'
-    'ctrl+shift+z': 'redoAction'
+    'ctrl+z, ⌘+z': 'undo'
+    'ctrl+shift+z, ⌘+shift+z': 'redo'
 
   constructor: (options) ->
     super options
@@ -106,6 +105,11 @@ module.exports = class ThangsTabView extends CocoView
     else
       $('#thangs-list').height(oldHeight - thangsHeaderHeight - 80)
 
+  undo: (e) ->
+    if not @editThangView then @thangsTreema.undo() else @editThangView.undo()
+
+  redo: (e) ->
+    if not @editThangView then @thangsTreema.redo() else @editThangView.redo()
 
   afterRender: ->
     super()
@@ -114,8 +118,10 @@ module.exports = class ThangsTabView extends CocoView
     $('#thangs-list').bind 'mousewheel', @preventBodyScrollingInThangList
     @$el.find('#extant-thangs-filter button:first').button('toggle')
     $(window).resize @onWindowResize
-    @addThangsView = @insertSubView new AddThangsView world: @world, supermodel: @supermodel
+    @addThangsView = @insertSubView new AddThangsView world: @world
     @buildInterface() # refactor to not have this trigger when this view re-renders?
+    if @thangsTreema.data.length
+      @$el.find('#canvas-overlay').css('display', 'none')
 
   onFilterExtantThangs: (e) ->
     @$el.find('#extant-thangs-filter button.active').button('toggle')
@@ -155,6 +161,8 @@ module.exports = class ThangsTabView extends CocoView
     thangsHeaderHeight = $('#thangs-header').height()
     oldHeight = $('#thangs-list').height()
     $('#thangs-list').height(oldHeight - thangsHeaderHeight)
+    if data.thangs.length
+      @$el.find('#randomize-button').hide()
 
   initSurface: ->
     surfaceCanvas = $('canvas#surface', @$el)
@@ -234,6 +242,7 @@ module.exports = class ThangsTabView extends CocoView
     @batchInsert()
     @selectAddThangType null
 
+
   # TODO: figure out a good way to have all Surface clicks and Treema clicks just proxy in one direction, so we can maintain only one way of handling selection and deletion
   onExtantThangSelected: (e) ->
     @selectedExtantSprite?.setNameLabel? null unless @selectedExtantSprite is e.sprite
@@ -301,10 +310,14 @@ module.exports = class ThangsTabView extends CocoView
     else
       @addThangSprite = null
 
-  createEssentialComponents: ->
+  createEssentialComponents: (defaultComponents) ->
+    physicalConfig = {pos: {x: 10, y: 10, z: 1}}
+    if physicalOriginal = _.find(defaultComponents ? [], original: componentOriginals['physics.Physical'])
+      physicalConfig.pos.z = physicalOriginal.config.pos.z  # Get the z right
+    console.log physicalOriginal, defaultComponents, componentOriginals['physics.Physical'], physicalConfig
     [
       {original: componentOriginals['existence.Exists'], majorVersion: 0, config: {}}
-      {original: componentOriginals['physics.Physical'], majorVersion: 0, config: {pos: {x: 10, y: 10, z: 1}, width: 2, height: 2, depth: 2, shape: 'box'}}
+      {original: componentOriginals['physics.Physical'], majorVersion: 0, config: physicalConfig}
     ]
 
   createAddThang: ->
@@ -325,8 +338,8 @@ module.exports = class ThangsTabView extends CocoView
 
   adjustThangPos: (sprite, thang, pos) ->
     snap = sprite?.data?.snap or sprite?.thangType?.get('snap') or {x: 0.01, y: 0.01}  # Centimeter resolution by default
-    pos.x = Math.round((pos.x - thang.width / 2) / snap.x) * snap.x + thang.width / 2
-    pos.y = Math.round((pos.y - thang.height / 2) / snap.y) * snap.y + thang.height / 2
+    pos.x = Math.round((pos.x - (thang.width ? 1) / 2) / snap.x) * snap.x + (thang.width ? 1) / 2
+    pos.y = Math.round((pos.y - (thang.height ? 1) / 2) / snap.y) * snap.y + (thang.height ? 1) / 2
     pos.z = thang.depth / 2
     thang.pos = pos
     @surface.spriteBoss.update true  # Make sure Obstacle layer resets cache
@@ -406,6 +419,7 @@ module.exports = class ThangsTabView extends CocoView
     @thangsBatch = []
 
   addThang: (thangType, pos, batchInsert=false) ->
+    @$el.find('#randomize-button').hide()
     if batchInsert
       thangID = "Random #{thangType.get('name')} #{@thangsBatch.length}"
     else
@@ -413,9 +427,11 @@ module.exports = class ThangsTabView extends CocoView
     if @cloneSourceThang
       components = _.cloneDeep @thangsTreema.get "id=#{@cloneSourceThang.id}/components"
       @selectAddThang null
+    else if @level.get('type') is 'hero'
+      components = []  # Load them all from default ThangType Components
     else
       components = _.cloneDeep thangType.get('components') ? []
-    components = @createEssentialComponents() unless components.length
+    components = @createEssentialComponents(thangType.get('components')) unless components.length
     physical = _.find components, (c) -> c.config?.pos?
     physical.config.pos = x: pos.x, y: pos.y, z: physical.config.pos.z if physical
     thang = thangType: thangType.get('original'), id: thangID, components: components
@@ -430,7 +446,7 @@ module.exports = class ThangsTabView extends CocoView
     else  # Mediator event
       window.thangsTreema = @thangsTreema
       thangData = @thangsTreema.get "id=#{e.thangID}"
-    @editThangView = new LevelThangEditView thangData: thangData, supermodel: @supermodel, level: @level, world: @world
+    @editThangView = new LevelThangEditView thangData: thangData, level: @level, world: @world, supermodel: @supermodel  # supermodel needed for checkForMissingSystems
     @insertSubView @editThangView
     @$el.find('.thangs-column').hide()
     Backbone.Mediator.publish 'level:view-switched', e
@@ -473,14 +489,18 @@ module.exports = class ThangsTabView extends CocoView
     $('#add-thangs-column').toggle()
     @onWindowResize e
 
-  undoAction: (e) ->
-    @thangsTreema.undo()
-
-  redoAction: (e) ->
-    @thangsTreema.redo()
-
 class ThangsNode extends TreemaNode.nodeMap.array
   valueClass: 'treema-array-replacement'
+  nodeDescription: 'Thang'
+
+  getTrackedActionDescription: (trackedAction) ->
+    trackedActionDescription = super(trackedAction)
+    if trackedActionDescription is 'Edit ' + @nodeDescription
+      path = trackedAction.path.split '/'
+      if path[path.length-1] is 'pos'
+        trackedActionDescription = 'Move Thang'
+    trackedActionDescription
+
   getChildren: ->
     children = super(arguments...)
     # TODO: add some filtering to only work with certain types of units at a time
@@ -496,7 +516,7 @@ class ThangNode extends TreemaObjectNode
     s = "#{@data.thangType}"
     if isObjectID s
       unless name = ThangNode.thangNameMap[s]
-        thangType = _.find @settings.supermodel.getModels(ThangType), (m) -> m.get('original') is s
+        thangType = _.find @settings.supermodel.getModels(ThangType), (m) -> m.get('original') is s and m.get('kind')
         name = ThangNode.thangNameMap[s] = thangType.get 'name'
         ThangNode.thangKindMap[s] = thangType.get 'kind'
       kind = ThangNode.thangKindMap[s]
@@ -510,4 +530,4 @@ class ThangNode extends TreemaObjectNode
     @buildValueForDisplaySimply valEl, s
 
   onEnterPressed: ->
-    Backbone.Mediator.publish 'edit-level-thang', levelThang: @data.id
+    Backbone.Mediator.publish 'edit-level-thang', thangID: @data.id

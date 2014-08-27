@@ -4,7 +4,7 @@ ThangType = require 'models/ThangType'
 CocoCollection = require 'collections/CocoCollection'
 
 class ThangTypeSearchCollection extends CocoCollection
-  url: '/db/thang.type?project=true'
+  url: '/db/thang.type?project=original,name,version,description,slug,kind,rasterIcon'
   model: ThangType
 
   addTerm: (term) ->
@@ -14,7 +14,6 @@ module.exports = class AddThangsView extends CocoView
   id: 'add-thangs-column'
   className: 'add-thangs-palette thangs-column'
   template: add_thangs_template
-  startsLoading: false
 
   events:
     'keyup input#thang-search': 'runSearch'
@@ -33,18 +32,18 @@ module.exports = class AddThangsView extends CocoView
     else
       models = @supermodel.getModels(ThangType)
 
-    thangTypes = (thangType.attributes for thangType in models)
-    thangTypes = _.uniq thangTypes, false, 'original'
-    thangTypes = _.reject thangTypes, kind: 'Mark'
+    thangTypes = _.uniq models, false, (thangType) -> thangType.get('original')
+    thangTypes = _.reject thangTypes, (thangType) -> thangType.get('kind') is 'Mark'
     groupMap = {}
     for thangType in thangTypes
-      groupMap[thangType.kind] ?= []
-      groupMap[thangType.kind].push thangType
+      kind = thangType.get('kind')
+      groupMap[kind] ?= []
+      groupMap[kind].push thangType
 
     groups = []
     for groupName in Object.keys(groupMap).sort()
       someThangTypes = groupMap[groupName]
-      someThangTypes = _.sortBy someThangTypes, 'name'
+      someThangTypes = _.sortBy someThangTypes, (thangType) -> thangType.get('name')
       group =
         name: groupName
         thangs: someThangTypes
@@ -56,6 +55,10 @@ module.exports = class AddThangsView extends CocoView
 
   afterRender: ->
     super()
+    @buildAddThangPopovers()
+
+  buildAddThangPopovers: ->
+    @$el.find('#thangs-list .add-thang-palette-icon').tooltip(container: 'body', animation: false)
 
   runSearch: (e) =>
     if e?.which is 27

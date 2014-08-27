@@ -4,17 +4,19 @@ h4.home
     i.icon-home.icon-white
     span(data-i18n="play_level.home") Home
 
-h4.title #{worldName}
+h4.title
+  | #{worldName}
+  |  - 
+  a(href=editorLink, data-i18n="nav.editor", title="Open " + worldName + " in the Level Editor") Editor
+
+
+button.btn.btn-xs.btn-warning.banner#stop-real-time-playback-button(title="Stop real-time playback", data-i18n="play_level.stop") Stop
+
+button.btn.btn-xs.btn-inverse.banner#game-menu-button(title="Show game menu", data-i18n="play_level.game_menu") Game Menu
 
 button.btn.btn-xs.btn-success.banner#docs-button(title="Show level instructions", data-i18n="play_level.guide") Guide
 
-if ladderGame
-  button.btn.btn-xs.btn-inverse.banner#multiplayer-button(title="Leaderboard", data-i18n="play_level.leaderboard") Leaderboard
-else
-  button.btn.btn-xs.btn-inverse.banner#multiplayer-button(title="Multiplayer", data-i18n="play_level.multiplayer") Multiplayer
 if spectateGame
   button.btn.btn-xs.btn-inverse.banner#next-game-button(title="Next Game", data-i18n="play_level.next-game") Next game!
-
-button.btn.btn-xs.btn-inverse.banner#restart-button(title="Reload all custom code to reset level", data-i18n="play_level.restart") Restart
 
 button.btn.btn-xs.btn-primary.banner#level-done-button(data-i18n="play_level.done") Done

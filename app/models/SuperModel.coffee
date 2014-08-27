@@ -58,9 +58,15 @@ module.exports = class SuperModel extends Backbone.Model
         return res
     else
       @addCollection collection
-      @listenToOnce collection, 'sync', (c) ->
-        console.debug 'Registering collection', url
-        @registerCollection c
+      onCollectionSynced = (c) ->
+        if collection.url is c.url
+          console.debug 'Registering collection', url, c
+          @registerCollection c
+        else
+          console.warn 'Sync triggered for collection', c
+          console.warn 'Yet got other object', c
+          @listenToOnce collection, 'sync', onCollectionSynced
+      @listenToOnce collection, 'sync', onCollectionSynced
       res = @addModelResource(collection, name, fetchOptions, value)
       res.load() if not (res.isLoading or res.isLoaded)
       return res
@@ -78,6 +84,10 @@ module.exports = class SuperModel extends Backbone.Model
   getModelByURL: (modelURL) ->
     modelURL = modelURL() if _.isFunction(modelURL)
     return @models[modelURL] or null
+    
+  getModelByOriginal: (ModelClass, original) ->
+    _.find @models, (m) ->
+      m.get('original') is original and m.constructor.className is ModelClass.className
 
   getModelByOriginalAndMajorVersion: (ModelClass, original, majorVersion=0) ->
     _.find @models, (m) ->
@@ -166,6 +176,7 @@ module.exports = class SuperModel extends Backbone.Model
     @num += r.value
     _.defer @updateProgress
     r.clean()
+    @trigger 'resource-loaded', r
 
   onResourceFailed: (r) ->
     return unless @resources[r.rid]

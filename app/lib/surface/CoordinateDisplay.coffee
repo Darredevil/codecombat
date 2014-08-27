@@ -11,7 +11,9 @@ module.exports = class CoordinateDisplay extends createjs.Container
     super()
     @initialize()
     @camera = options.camera
-    console.error 'CoordinateDisplay needs camera.' unless @camera
+    @layer = options.layer
+    console.error @toString(), 'needs a camera.' unless @camera
+    console.error @toString(), 'needs a layer.' unless @layer
     @build()
     @show = _.debounce @show, 125
     Backbone.Mediator.subscribe(channel, @[func], @) for channel, func of @subscriptions
@@ -20,6 +22,8 @@ module.exports = class CoordinateDisplay extends createjs.Container
     Backbone.Mediator.unsubscribe(channel, @[func], @) for channel, func of @subscriptions
     @show = null
     @destroyed = true
+
+  toString: -> '<CoordinateDisplay>'
 
   build: ->
     @mouseEnabled = @mouseChildren = false
@@ -30,15 +34,12 @@ module.exports = class CoordinateDisplay extends createjs.Container
     @label.shadow = new createjs.Shadow('#000000', 1, 1, 0)
     @background.name = 'Coordinate Display Background'
     @pointMarker.name = 'Point Marker'
+    @layer.addChild @
 
   onMouseOver: (e) -> @mouseInBounds = true
   onMouseOut: (e) -> @mouseInBounds = false
 
   onMouseMove: (e) ->
-    if @mouseInBounds and key.shift
-      $('#surface').addClass('flag-cursor') unless $('#surface').hasClass('flag-cursor')
-    else if @mouseInBounds
-      $('#surface').removeClass('flag-cursor') if $('#surface').hasClass('flag-cursor')
     wop = @camera.screenToWorld x: e.x, y: e.y
     wop.x = Math.round(wop.x)
     wop.y = Math.round(wop.y)
@@ -70,36 +71,66 @@ module.exports = class CoordinateDisplay extends createjs.Container
     contentWidth = @label.getMeasuredWidth() + (2 * margin)
     contentHeight = @label.getMeasuredHeight() + (2 * margin)
 
-    # Shift all contents up so marker is at pointer (affects container cache position)
-    @label.regY = @background.regY = @pointMarker.regY = contentHeight
+    # Shift pointmarker up so it centers at pointer (affects container cache position)
+    @pointMarker.regY = contentHeight
 
     pointMarkerStroke = 2
     pointMarkerLength = 8
+    fullPointMarkerLength = pointMarkerLength + (pointMarkerStroke / 2)
     contributionsToTotalSize = []
-    contributionsToTotalSize = contributionsToTotalSize.concat @updateCoordinates contentWidth, contentHeight, pointMarkerLength
+    contributionsToTotalSize = contributionsToTotalSize.concat @updateCoordinates contentWidth, contentHeight, fullPointMarkerLength
     contributionsToTotalSize = contributionsToTotalSize.concat @updatePointMarker 0, contentHeight, pointMarkerLength, pointMarkerStroke
 
     totalWidth = contentWidth + contributionsToTotalSize.reduce (a, b) -> a + b
     totalHeight = contentHeight + contributionsToTotalSize.reduce (a, b) -> a + b
 
-    @cache  -pointMarkerLength, -totalHeight + pointMarkerLength, totalWidth, totalHeight
+    if @isNearTopEdge()
+      verticalEdge =
+        startPos: -fullPointMarkerLength
+        posShift: -contentHeight + 4
+    else
+      verticalEdge =
+        startPos: -totalHeight + fullPointMarkerLength
+        posShift: contentHeight
 
-  updateCoordinates: (contentWidth, contentHeight, initialXYOffset) ->
-    offsetForPointMarker = initialXYOffset
+    if @isNearRightEdge()
+      horizontalEdge =
+        startPos: -totalWidth + fullPointMarkerLength
+        posShift: totalWidth
+    else
+      horizontalEdge =
+        startPos: -fullPointMarkerLength
+        posShift: 0
 
+    @orient verticalEdge, horizontalEdge, totalHeight, totalWidth
+
+  isNearTopEdge: ->
+    yRatio = 1 - (@camera.worldViewport.y - @lastPos.y) / @camera.worldViewport.height
+    yRatio > 0.9
+
+  isNearRightEdge: ->
+    xRatio = (@lastPos.x - @camera.worldViewport.x) / @camera.worldViewport.width
+    xRatio > 0.85
+
+  orient: (verticalEdge, horizontalEdge, totalHeight, totalWidth) ->
+    @label.regY = @background.regY = verticalEdge.posShift
+    @label.regX = @background.regX = horizontalEdge.posShift
+    @cache horizontalEdge.startPos, verticalEdge.startPos, totalWidth, totalHeight
+
+  updateCoordinates: (contentWidth, contentHeight, offset) ->
     # Center label horizontally and vertically
-    @label.x = contentWidth / 2 - (@label.getMeasuredWidth() / 2) + offsetForPointMarker
-    @label.y = contentHeight / 2 - (@label.getMeasuredHeight() / 2) - offsetForPointMarker
+    @label.x = contentWidth / 2 - (@label.getMeasuredWidth() / 2) + offset
+    @label.y = contentHeight / 2 - (@label.getMeasuredHeight() / 2) - offset
 
     @background.graphics
       .clear()
       .beginFill('rgba(0,0,0,0.4)')
       .beginStroke('rgba(0,0,0,0.6)')
       .setStrokeStyle(backgroundStroke = 1)
-      .drawRoundRect(offsetForPointMarker, -offsetForPointMarker, contentWidth, contentHeight, radius = 2.5)
+      .drawRoundRect(offset, -offset, contentWidth, contentHeight, radius = 2.5)
       .endFill()
       .endStroke()
-    contributionsToTotalSize = [offsetForPointMarker, backgroundStroke]
+    contributionsToTotalSize = [offset, backgroundStroke]
 
   updatePointMarker: (centerX, centerY, length, strokeSize) ->
     strokeStyle = 'square'

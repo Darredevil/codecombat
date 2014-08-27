@@ -1,4 +1,5 @@
 CocoModel = require 'models/CocoModel'
+utils = require 'lib/utils'
 
 class BlandClass extends CocoModel
   @className: 'Bland'
@@ -21,7 +22,24 @@ describe 'CocoModel', ->
       b.fetch()
       request = jasmine.Ajax.requests.mostRecent()
       expect(decodeURIComponent(request.url).indexOf('project=number,object')).toBeGreaterThan(-1)
-  
+
+    it 'can update its projection', ->
+      baseURL = '/db/bland/test?filter-creator=Mojambo&project=number,object&ignore-evil=false'
+      unprojectedURL = baseURL.replace /&project=number,object/, ''
+      b = new BlandClass({})
+      b.setURL baseURL
+      expect(b.getURL()).toBe baseURL
+      b.setProjection ['number', 'object']
+      expect(b.getURL()).toBe baseURL
+      b.setProjection ['number']
+      expect(b.getURL()).toBe baseURL.replace /,object/, ''
+      b.setProjection []
+      expect(b.getURL()).toBe unprojectedURL
+      b.setProjection null
+      expect(b.getURL()).toBe unprojectedURL
+      b.setProjection ['object', 'number']
+      expect(b.getURL()).toBe unprojectedURL + '&project=object,number'
+
   describe 'save', ->
 
     it 'saves to db/<urlRoot>', ->
@@ -90,3 +108,45 @@ describe 'CocoModel', ->
       b.patch()
       request = jasmine.Ajax.requests.mostRecent()
       expect(request).toBeUndefined()
+
+  xdescribe 'Achievement polling', ->
+    NewAchievementCollection = require 'collections/NewAchievementCollection'
+    EarnedAchievement = require 'models/EarnedAchievement'
+
+    # TODO: Figure out how to do debounce in tests so that this test doesn't need to use keepDoingUntil
+
+    it 'achievements are polled upon saving a model', (done) ->
+      #spyOn(CocoModel, 'pollAchievements')
+      Backbone.Mediator.subscribe 'achievements:new', (collection) ->
+        Backbone.Mediator.unsubscribe 'achievements:new'
+        expect(collection.constructor.name).toBe('NewAchievementCollection')
+        done()
+
+      b = new BlandClass({})
+      res = b.save()
+      request = jasmine.Ajax.requests.mostRecent()
+      request.response(status: 200, responseText: '{}')
+
+      collection = []
+      model =
+        _id: "5390f7637b4d6f2a074a7bb4"
+        achievement: "537ce4855c91b8d1dda7fda8"
+      collection.push model
+
+      utils.keepDoingUntil (ready) ->
+        request = jasmine.Ajax.requests.mostRecent()
+        achievementURLMatch = (/.*achievements\?notified=false$/).exec request.url
+        if achievementURLMatch
+          ready true
+        else return ready false
+
+        request.response {status: 200, responseText: JSON.stringify collection}
+
+        utils.keepDoingUntil (ready) ->
+          request = jasmine.Ajax.requests.mostRecent()
+          userURLMatch = (/^\/db\/user\/[a-zA-Z0-9]*$/).exec request.url
+          if userURLMatch
+            ready true
+          else return ready false
+
+          request.response {status:200, responseText: JSON.stringify me}

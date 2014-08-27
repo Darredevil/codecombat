@@ -8,43 +8,33 @@ config = require '../../server_config'
 errors = require '../commons/errors'
 async = require 'async'
 log = require 'winston'
+moment = require 'moment'
 LevelSession = require '../levels/sessions/LevelSession'
 LevelSessionHandler = require '../levels/sessions/level_session_handler'
 EarnedAchievement = require '../achievements/EarnedAchievement'
 UserRemark = require './remarks/UserRemark'
 
 serverProperties = ['passwordHash', 'emailLower', 'nameLower', 'passwordReset']
-privateProperties = [
-  'permissions', 'email', 'firstName', 'lastName', 'gender', 'facebookID',
-  'gplusID', 'music', 'volume', 'aceConfig', 'employerAt', 'signedEmployerAgreement'
-]
 candidateProperties = [
   'jobProfile', 'jobProfileApproved', 'jobProfileNotes'
 ]
 
 UserHandler = class UserHandler extends Handler
   modelClass: User
-  jsonSchema: schema
-  editableProperties: [
-    'name', 'photoURL', 'password', 'anonymous', 'wizardColor1', 'volume',
-    'firstName', 'lastName', 'gender', 'facebookID', 'gplusID', 'emails',
-    'testGroupNumber', 'music', 'hourOfCode', 'hourOfCodeComplete', 'preferredLanguage',
-    'wizard', 'aceConfig', 'autocastDelay', 'lastLevel', 'jobProfile', 'savedEmployerFilterAlerts'
-  ]
 
   getEditableProperties: (req, document) ->
     props = super req, document
     props.push 'permissions' unless config.isProduction
     props.push 'jobProfileApproved', 'jobProfileNotes','jobProfileApprovedDate' if req.user.isAdmin()  # Admins naturally edit these
-    props.push privateProperties... if req.user.isAdmin()  # Admins are mad with power
+    props.push @privateProperties... if req.user.isAdmin()  # Admins are mad with power
     props
 
-  formatEntity: (req, document) ->
+  formatEntity: (req, document) =>
     return null unless document?
     obj = document.toObject()
     delete obj[prop] for prop in serverProperties
     includePrivates = req.user and (req.user.isAdmin() or req.user._id.equals(document._id))
-    delete obj[prop] for prop in privateProperties unless includePrivates
+    delete obj[prop] for prop in @privateProperties unless includePrivates
     includeCandidate = includePrivates or (obj.jobProfile?.active and req.user and ('employer' in (req.user.get('permissions') ? [])) and @employerCanViewCandidate req.user, obj)
     delete obj[prop] for prop in candidateProperties unless includeCandidate
     return obj
@@ -194,6 +184,7 @@ UserHandler = class UserHandler extends Handler
     return @getSimulatorLeaderboard(req, res, args[0]) if args[1] is 'simulatorLeaderboard'
     return @getMySimulatorLeaderboardRank(req, res, args[0]) if args[1] is 'simulator_leaderboard_rank'
     return @getEarnedAchievements(req, res, args[0]) if args[1] is 'achievements'
+    return @getRecentlyPlayed(req, res, args[0]) if args[1] is 'recently_played'
     return @trackActivity(req, res, args[0], args[2], args[3]) if args[1] is 'track' and args[2]
     return @getRemark(req, res, args[0]) if args[1] is 'remark'
     return @sendNotFoundError(res)
@@ -239,31 +230,49 @@ UserHandler = class UserHandler extends Handler
       documents = (LevelSessionHandler.formatEntity(req, doc) for doc in documents)
       @sendSuccess(res, documents)
 
-  getLevelSessions: (req, res, userID) ->
-    query = creator: userID
-    isAuthorized = req.user._id+'' is userID or req.user.isAdmin()
-    projection = {}
-    if req.query.project
-      projection[field] = 1 for field in req.query.project.split(',') when isAuthorized or not (field in LevelSessionHandler.privateProperties)
-    else unless isAuthorized
-      projection[field] = 0 for field in LevelSessionHandler.privateProperties
+  IDify: (idOrSlug, done) ->
+    return done null, idOrSlug if Handler.isID idOrSlug
+    User.findBySlug idOrSlug, (err, user) -> done err, user?.get '_id'
 
-    LevelSession.find(query).select(projection).exec (err, documents) =>
-      return @sendDatabaseError(res, err) if err
-      documents = (LevelSessionHandler.formatEntity(req, doc) for doc in documents)
-      @sendSuccess(res, documents)
+  getLevelSessions: (req, res, userIDOrSlug) ->
+    @IDify userIDOrSlug, (err, userID) =>
+      return @sendDatabaseError res, err if err
+      return @sendNotFoundError res unless userID?
+      query = creator: userID + ''
+      isAuthorized = req.user._id+'' is userID or req.user.isAdmin()
+      projection = {}
+      if req.query.project
+        projection[field] = 1 for field in req.query.project.split(',') when isAuthorized or not (field in LevelSessionHandler.privateProperties)
+      else unless isAuthorized
+        projection[field] = 0 for field in LevelSessionHandler.privateProperties
+      sort = {}
+      sort.changed = req.query.order if req.query.order
 
-  getEarnedAchievements: (req, res, userID) ->
-    queryObject = {$query: {user: userID}, $orderby: {changed: -1}}
-    queryObject.$query.notified = false if req.query.notified is 'false'
-    query = EarnedAchievement.find(queryObject)
-    query.exec (err, documents) =>
-      return @sendDatabaseError(res, err) if err?
-      cleandocs = (@formatEntity(req, doc) for doc in documents)
-      for doc in documents  # Maybe move this logic elsewhere
-        doc.set('notified', true)
-        doc.save()
-      @sendSuccess(res, cleandocs)
+      LevelSession.find(query).select(projection).sort(sort).exec (err, documents) =>
+        return @sendDatabaseError(res, err) if err
+        documents = (LevelSessionHandler.formatEntity(req, doc) for doc in documents)
+        @sendSuccess(res, documents)
+
+  getEarnedAchievements: (req, res, userIDOrSlug) ->
+    @IDify userIDOrSlug, (err, userID) =>
+      return @sendDatabaseError res, err if err
+      return @sendNotFoundError res unless userID?
+      query = user: userID + ''
+      query.notified = false if req.query.notified is 'false'
+      EarnedAchievement.find(query).sort(changed: -1).exec (err, documents) =>
+        return @sendDatabaseError(res, err) if err?
+        cleandocs = (@formatEntity(req, doc) for doc in documents)
+        for doc in documents  # TODO Ruben Maybe move this logic elsewhere
+          doc.set('notified', true)
+          doc.save()
+        @sendSuccess(res, cleandocs)
+
+  getRecentlyPlayed: (req, res, userID) ->
+    twoWeeksAgo = moment().subtract('days', 14).toDate()
+    LevelSession.find(creator: userID, changed: $gt: twoWeeksAgo).sort(changed: -1).exec (err, docs) =>
+      return @sendDatabaseError res, err if err?
+      cleandocs = (@formatEntity(req, doc) for doc in docs)
+      @sendSuccess res, cleandocs
 
   trackActivity: (req, res, userID, activityName, increment=1) ->
     return @sendMethodNotAllowed res unless req.method is 'POST'
@@ -378,5 +387,203 @@ UserHandler = class UserHandler extends Handler
       return @sendDatabaseError res, err if err
       return @sendNotFoundError res unless remark?
       @sendSuccess res, remark
+
+  countEdits = (model, done) ->
+    statKey = User.statsMapping.edits[model.modelName]
+    return done(new Error 'Could not resolve statKey for model') unless statKey?
+    userStream = User.find().stream()
+    streamFinished = false
+    usersTotal = 0
+    usersFinished = 0
+    doneWithUser = (err) ->
+      log.error err if err?
+      ++usersFinished
+      done?() if streamFinished and usersFinished is usersTotal
+    userStream.on 'error', (err) -> log.error err
+    userStream.on 'close', -> streamFinished = true
+    userStream.on 'data',  (user) ->
+      userObjectID = user.get('_id')
+      userStringID = userObjectID.toHexString()
+
+      model.count {$or: [creator: userObjectID, creator: userStringID]}, (err, count) ->
+        if count
+          update = $set: {}
+          update.$set[statKey] = count
+        else
+          update = $unset: {}
+          update.$unset[statKey] = ''
+        User.findByIdAndUpdate user.get('_id'), update, (err) ->
+          log.error err if err?
+          doneWithUser()
+
+  # I don't like leaking big variables, could remove this for readability
+  # Meant for passing into MongoDB
+  {isMiscPatch, isTranslationPatch} = do ->
+    deltas = require '../../app/lib/deltas'
+
+    isMiscPatch: (obj) ->
+      expanded = deltas.flattenDelta obj.get 'delta'
+      _.some expanded, (delta) -> 'i18n' not in delta.dataPath
+    isTranslationPatch: (obj) ->
+      expanded = deltas.flattenDelta obj.get 'delta'
+      _.some expanded, (delta) -> 'i18n' in delta.dataPath
+
+  Patch = require '../patches/Patch'
+  # filter is passed a mongoose document and should return a boolean,
+  # determining whether the patch should be counted
+  countPatchesByUsersInMemory = (query, filter, statName, done) ->
+    updateUser = (user, count, doneUpdatingUser) ->
+      method = if count then '$set' else '$unset'
+      update = {}
+      update[method] = {}
+      update[method][statName] = count or ''
+      User.findByIdAndUpdate user.get('_id'), update, doneUpdatingUser
+
+    userStream = User.find().stream()
+    streamFinished = false
+    usersTotal = 0
+    usersFinished = 0
+    doneWithUser = (err) ->
+      log.error err if err?
+      ++usersFinished
+      done?() if streamFinished and usersFinished is usersTotal
+    userStream.on 'error', (err) -> log.error err
+    userStream.on 'close', -> streamFinished = true
+    userStream.on 'data',  (user) ->
+      userObjectID = user.get '_id'
+      userStringID = userObjectID.toHexString()
+      # Extend query with a patch ownership test
+      _.extend query, {$or: [{creator: userObjectID}, {creator: userStringID}]}
+
+      count = 0
+      stream = Patch.where(query).stream()
+      stream.on 'data', (doc) -> ++count if filter doc
+      stream.on 'error', (err) ->
+        updateUser user, count, doneWithUser
+        log.error "Recalculating #{statName} for user #{user} stopped prematurely because of error"
+      stream.on 'close', ->
+        updateUser user, count, doneWithUser
+
+  countPatchesByUsers = (query, statName, done) ->
+    Patch = require '../patches/Patch'
+
+    userStream = User.find().stream()
+    streamFinished = false
+    usersTotal = 0
+    usersFinished = 0
+    doneWithUser = (err) ->
+      log.error err if err?
+      ++usersFinished
+      done?() if streamFinished and usersFinished is usersTotal
+    userStream.on 'error', (err) -> log.error err
+    userStream.on 'close', -> streamFinished = true
+    userStream.on 'data',  (user) ->
+      userObjectID = user.get '_id'
+      userStringID = userObjectID.toHexString()
+      # Extend query with a patch ownership test
+      _.extend query, {$or: [{creator: userObjectID}, {creator: userStringID}]}
+
+      Patch.count query, (err, count) ->
+        method = if count then '$set' else '$unset'
+        update = {}
+        update[method] = {}
+        update[method][statName] = count or ''
+        User.findByIdAndUpdate user.get('_id'), update, doneWithUser
+
+  statRecalculators:
+    gamesCompleted: (done) ->
+      LevelSession = require '../levels/sessions/LevelSession'
+
+      userStream = User.find().stream()
+      streamFinished = false
+      usersTotal = 0
+      usersFinished = 0
+      doneWithUser = (err) ->
+        log.error err if err?
+        ++usersFinished
+        done?() if streamFinished and usersFinished is usersTotal
+      userStream.on 'error', (err) -> log.error err
+      userStream.on 'close', -> streamFinished = true
+      userStream.on 'data',  (user) ->
+        userID = user.get('_id').toHexString()
+
+        LevelSession.count {creator: userID, 'state.completed': true}, (err, count) ->
+          update = if count then {$set: 'stats.gamesCompleted': count} else {$unset: 'stats.gamesCompleted': ''}
+          User.findByIdAndUpdate user.get('_id'), update, doneWithUser
+
+    articleEdits: (done) ->
+      Article = require '../articles/Article'
+      countEdits Article,  done
+
+    levelEdits: (done) ->
+      Level = require '../levels/Level'
+      countEdits Level, done
+
+    levelComponentEdits: (done) ->
+      LevelComponent = require '../levels/components/LevelComponent'
+      countEdits LevelComponent,  done
+
+    levelSystemEdits: (done) ->
+      LevelSystem = require '../levels/systems/LevelSystem'
+      countEdits LevelSystem, done
+
+    thangTypeEdits: (done) ->
+      ThangType = require '../levels/thangs/ThangType'
+      countEdits ThangType, done
+
+    patchesContributed: (done) ->
+      countPatchesByUsers {'status': 'accepted'}, 'stats.patchesContributed', done
+
+    patchesSubmitted: (done) ->
+      countPatchesByUsers {}, 'stats.patchesSubmitted', done
+
+    # The below need functions for filtering and are thus checked in memory
+    totalTranslationPatches: (done) ->
+      countPatchesByUsersInMemory {}, isTranslationPatch, 'stats.totalTranslationPatches', done
+
+    totalMiscPatches: (done) ->
+      countPatchesByUsersInMemory {}, isMiscPatch, 'stats.totalMiscPatches', done
+
+    articleMiscPatches: (done) ->
+      countPatchesByUsersInMemory {'target.collection': 'article'}, isMiscPatch, User.statsMapping.misc.article, done
+
+    levelMiscPatches: (done) ->
+      countPatchesByUsersInMemory {'target.collection': 'level'}, isMiscPatch, User.statsMapping.misc.level, done
+
+    levelComponentMiscPatches: (done) ->
+      countPatchesByUsersInMemory {'target.collection': 'level_component'}, isMiscPatch, User.statsMapping.misc['level.component'], done
+
+    levelSystemMiscPatches: (done) ->
+      countPatchesByUsersInMemory {'target.collection': 'level_system'}, isMiscPatch, User.statsMapping.misc['level.system'], done
+
+    thangTypeMiscPatches: (done) ->
+      countPatchesByUsersInMemory {'target.collection': 'thang_type'}, isMiscPatch, User.statsMapping.misc['thang.type'], done
+
+    articleTranslationPatches: (done) ->
+      countPatchesByUsersInMemory {'target.collection': 'article'}, isTranslationPatch, User.statsMapping.translations.article, done
+
+    levelTranslationPatches: (done) ->
+      countPatchesByUsersInMemory {'target.collection': 'level'}, isTranslationPatch, User.statsMapping.translations.level, done
+
+    levelComponentTranslationPatches: (done) ->
+      countPatchesByUsersInMemory {'target.collection': 'level_component'}, isTranslationPatch, User.statsMapping.translations['level.component'], done
+
+    levelSystemTranslationPatches: (done) ->
+      countPatchesByUsersInMemory {'target.collection': 'level_system'}, isTranslationPatch, User.statsMapping.translations['level.system'], done
+
+    thangTypeTranslationPatches: (done) ->
+      countPatchesByUsersInMemory {'target.collection': 'thang_type'}, isTranslationPatch, User.statsMapping.translations['thang.type'], done
+
+      
+  recalculateStats: (statName, done) =>
+    done new Error 'Recalculation handler not found' unless statName of @statRecalculators
+    @statRecalculators[statName] done
+
+  recalculate: (req, res, statName) ->
+    return @sendForbiddenError(res) unless req.user.isAdmin()
+    log.debug 'recalculate'
+    return @sendNotFoundError(res) unless statName of @statRecalculators
+    @recalculateStats statName
+    @sendAccepted res, {}
 
 module.exports = new UserHandler()
