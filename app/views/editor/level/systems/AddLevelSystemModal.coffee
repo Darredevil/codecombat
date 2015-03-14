@@ -1,4 +1,4 @@
-ModalView = require 'views/kinds/ModalView'
+ModalView = require 'views/core/ModalView'
 template = require 'templates/editor/level/system/add'
 availableSystemTemplate = require 'templates/editor/level/system/available_system'
 LevelSystem = require 'models/LevelSystem'
@@ -48,7 +48,6 @@ module.exports = class AddLevelSystemModal extends ModalView
       levelSystem =
         original: s.get('original') ? id
         majorVersion: s.get('version').major ? 0
-        config: $.extend(true, {}, s.get('configSchema').default ? {})
       @extantSystems.push levelSystem
-      Backbone.Mediator.publish 'level-system-added', system: levelSystem
+      Backbone.Mediator.publish 'editor:level-system-added', system: levelSystem
     @renderAvailableSystems()

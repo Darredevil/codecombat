@@ -1,9 +1,11 @@
-RootView = require 'views/kinds/RootView'
+RootView = require 'views/core/RootView'
 VersionHistoryView = require './ArticleVersionsModal'
 template = require 'templates/editor/article/edit'
 Article = require 'models/Article'
-SaveVersionModal = require 'views/modal/SaveVersionModal'
+SaveVersionModal = require 'views/editor/modal/SaveVersionModal'
 PatchesView = require 'views/editor/PatchesView'
+require 'views/modal/RevertModal'
+require 'vendor/treema'
 
 module.exports = class ArticleEditView extends RootView
   id: 'editor-article-edit-view'
@@ -15,7 +17,7 @@ module.exports = class ArticleEditView extends RootView
     'click #save-button': 'openSaveModal'
 
   subscriptions:
-    'save-new-version': 'saveNewArticle'
+    'editor:save-new-version': 'saveNewArticle'
 
   constructor: (options, @articleID) ->
     super options
@@ -81,7 +83,7 @@ module.exports = class ArticleEditView extends RootView
 
     newArticle = if e.major then @article.cloneNewMajorVersion() else @article.cloneNewMinorVersion()
     newArticle.set('commitMessage', e.commitMessage)
-    res = newArticle.save()
+    res = newArticle.save(null, {type: 'POST'})  # Override PUT so we can trigger postNewVersion logic
     return unless res
     modal = @$el.find('#save-version-modal')
     @enableModalInProgress(modal)
@@ -98,4 +100,4 @@ module.exports = class ArticleEditView extends RootView
   showVersionHistory: (e) ->
     versionHistoryView = new VersionHistoryView article: @article, @articleID
     @openModalView versionHistoryView
-    Backbone.Mediator.publish 'level:view-switched', e
+    Backbone.Mediator.publish 'editor:view-switched', {}

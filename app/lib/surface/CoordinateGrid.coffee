@@ -1,8 +1,8 @@
-CocoClass = require 'lib/CocoClass'
+CocoClass = require 'core/CocoClass'
 
 module.exports = class CoordinateGrid extends CocoClass
   subscriptions:
-    'level-toggle-grid': 'onToggleGrid'
+    'level:toggle-grid': 'onToggleGrid'
 
   shortcuts:
     'ctrl+g, ⌘+g': 'onToggleGrid'
@@ -24,8 +24,8 @@ module.exports = class CoordinateGrid extends CocoClass
   toString: -> '<CoordinateGrid>'
 
   build: (worldSize) ->
-    worldWidth = worldSize[0] ? 80
-    worldHeight = worldSize[1] ? 68
+    worldWidth = worldSize[0] or 80
+    worldHeight = worldSize[1] or 68
     @gridContainer = new createjs.Container()
     @gridShape = new createjs.Shape()
     @gridContainer.addChild @gridShape

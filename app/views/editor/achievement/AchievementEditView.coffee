@@ -1,10 +1,12 @@
-RootView = require 'views/kinds/RootView'
+RootView = require 'views/core/RootView'
 template = require 'templates/editor/achievement/edit'
 Achievement = require 'models/Achievement'
-AchievementPopup = require 'views/achievements/AchievementPopup'
-ConfirmModal = require 'views/modal/ConfirmModal'
-errors = require 'lib/errors'
-app = require 'application'
+AchievementPopup = require 'views/core/AchievementPopup'
+ConfirmModal = require 'views/editor/modal/ConfirmModal'
+PatchesView = require 'views/editor/PatchesView'
+errors = require 'core/errors'
+app = require 'core/application'
+nodes = require 'views/editor/level/treema_nodes'
 
 module.exports = class AchievementEditView extends RootView
   id: 'editor-achievement-edit-view'
@@ -13,10 +15,8 @@ module.exports = class AchievementEditView extends RootView
   events:
     'click #save-button': 'saveAchievement'
     'click #recalculate-button': 'confirmRecalculation'
+    'click #recalculate-all-button': 'confirmAllRecalculation'
     'click #delete-button': 'confirmDeletion'
-
-  subscriptions:
-    'save-new': 'saveAchievement'
 
   constructor: (options, @achievementID) ->
     super options
@@ -39,25 +39,34 @@ module.exports = class AchievementEditView extends RootView
       readOnly: me.get('anonymous')
       callbacks:
         change: @pushChangesToPreview
+      nodeClasses:
+        'thang-type': nodes.ThangTypeNode
+        'item-thang-type': nodes.ItemThangTypeNode
+      supermodel: @supermodel
     @treema = @$el.find('#achievement-treema').treema(options)
     @treema.build()
+    @treema.childrenTreemas.rewards?.open(3)
+    @pushChangesToPreview()
 
   getRenderData: (context={}) ->
     context = super(context)
     context.achievement = @achievement
-    context.authorized = me.isAdmin()
+    context.authorized = me.isAdmin() or me.isArtisan()
     context
 
   afterRender: ->
     super()
     return unless @supermodel.finished()
     @pushChangesToPreview()
+    @patchesView = @insertSubView(new PatchesView(@achievement), @$el.find('.patches-view'))
+    @patchesView.load()
 
   pushChangesToPreview: =>
+    return unless @treema
     @$el.find('#achievement-view').empty()
     for key, value of @treema.data
       @achievement.set key, value
-    earned = earnedPoints: @achievement.get 'worth'
+    earned = get: (key) => {earnedPoints: @achievement.get('worth'), previouslyAchievedAmount: 0}[key]
     popup = new AchievementPopup achievement: @achievement, earnedAchievement: earned, popup: false, container: $('#achievement-view')
 
   openSaveModal: ->
@@ -77,16 +86,20 @@ module.exports = class AchievementEditView extends RootView
       url = "/editor/achievement/#{@achievement.get('slug') or @achievement.id}"
       document.location.href = url
 
-  confirmRecalculation: ->
+  confirmRecalculation: (e, all=false) ->
     renderData =
       'confirmTitle': 'Are you really sure?'
-      'confirmBody': 'This will trigger recalculation of the achievement for all users. Are you really sure you want to go down this path?'
+      'confirmBody': "This will trigger recalculation of #{if all then 'all achievements' else 'the achievement'} for all users. Are you really sure you want to go down this path?"
       'confirmDecline': 'Not really'
       'confirmConfirm': 'Definitely'
 
     confirmModal = new ConfirmModal renderData
     confirmModal.on 'confirm', @recalculateAchievement
+    @recalculatingAll = all
     @openModalView confirmModal
+
+  confirmAllRecalculation: (e) ->
+    @confirmRecalculation e, true
 
   confirmDeletion: ->
     renderData =
@@ -100,8 +113,9 @@ module.exports = class AchievementEditView extends RootView
     @openModalView confirmModal
 
   recalculateAchievement: =>
+    data = if @recalculatingAll then {} else {achievements: [@achievement.get('slug') or @achievement.get('_id')]}
     $.ajax
-      data: JSON.stringify(earnedAchievements: [@achievement.get('slug') or @achievement.get('_id')])
+      data: JSON.stringify data
       success: (data, status, jqXHR) ->
         noty
           timeout: 5000
