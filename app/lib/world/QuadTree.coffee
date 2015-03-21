@@ -155,5 +155,6 @@ class Node
 		@nodes.length = 0
 		return
 
-		
+
+
 module.exports = QuadTree
