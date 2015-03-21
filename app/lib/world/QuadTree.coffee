@@ -1,11 +1,11 @@
 class QuadTree
 
 	###
-		bounds =  object representing the bounds of the top level of the QuadTree. The object 
-		should contain the following properties : x, y, width, height
-		pointQuad = (Boolean) use it as TRUE for now
-		maxDepth = The maximum number of levels that the quadtree will create. Default is 4.
-		maxChildren = The maximum number of children that a node can contain before it is split into sub-nodes.
+	bounds =  object representing the bounds of the top level of the QuadTree. The object 
+	should contain the following properties : x, y, width, height
+	pointQuad = (Boolean) use it as TRUE for now
+	maxDepth = The maximum number of levels that the quadtree will create. Default is 4.
+	maxChildren = The maximum number of children that a node can contain before it is split into sub-nodes.
 	###
 	constructor: (bounds,pointQuad,maxDepth,maxChildren) ->
 		node = undefined
@@ -154,8 +154,6 @@ class Node
 			i++
 		@nodes.length = 0
 		return
-
-
 
 
 module.exports = QuadTree
