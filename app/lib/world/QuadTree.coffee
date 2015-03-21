@@ -105,4 +105,55 @@ class Node
 				index = Node.BOTTOM_RIGHT
 		index
 
+	subdivide: ->
+		depth = @_depth + 1
+		b_x = @_bounds.x
+		b_y = @_bounds.y
+		#floor the values
+		b_w_h = @_bounds.width / 2 | 0
+		#todo: Math.floor?
+		b_h_h = @_bounds.height / 2 | 0
+		bx_b_w_h = b_x + b_w_h
+		by_b_h_h = b_y + b_h_h
+		#top left
+		@nodes[Node.TOP_LEFT] = new (@_classConstructor)({
+			x: b_x
+			y: b_y
+			width: b_w_h
+			height: b_h_h
+			}, depth, @_maxDepth, @_maxChildren)
+		#top right
+		@nodes[Node.TOP_RIGHT] = new (@_classConstructor)({
+			x: bx_b_w_h
+			y: b_y
+			width: b_w_h
+			height: b_h_h
+			}, depth, @_maxDepth, @_maxChildren)
+		#bottom left
+		@nodes[Node.BOTTOM_LEFT] = new (@_classConstructor)({
+			x: b_x
+			y: by_b_h_h
+			width: b_w_h
+			height: b_h_h
+			}, depth, @_maxDepth, @_maxChildren)
+		#bottom right
+		@nodes[Node.BOTTOM_RIGHT] = new (@_classConstructor)({
+			x: bx_b_w_h
+			y: by_b_h_h
+			width: b_w_h
+			height: b_h_h
+			}, depth, @_maxDepth, @_maxChildren)
+		return
+
+	clear: ->
+		@children.length = 0
+		len = @nodes.length
+		i = 0
+		while i < len
+			@nodes[i].clear()
+			i++
+		@nodes.length = 0
+		return
+
+		
 module.exports = QuadTree
